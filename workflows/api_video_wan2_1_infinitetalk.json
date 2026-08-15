@@ -1,0 +1,736 @@
+{
+  "24": {
+    "inputs": {
+      "audio": "audio_speaker1_woman.mp3"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "32": {
+    "inputs": {
+      "image": "two_character_talking.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "90": {
+    "inputs": {
+      "audio": "audio_speaker2_man.mp3"
+    },
+    "class_type": "LoadAudio",
+    "_meta": {
+      "title": "加载音频"
+    }
+  },
+  "113": {
+    "inputs": {
+      "direction": "after",
+      "audio1": [
+        "24",
+        0
+      ],
+      "audio2": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "AudioConcat",
+    "_meta": {
+      "title": "音频拼接"
+    }
+  },
+  "138": {
+    "inputs": {
+      "fps": 25,
+      "bit_depth": 8,
+      "images": [
+        "188:119",
+        0
+      ],
+      "audio": [
+        "113",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "创建视频"
+    }
+  },
+  "140": {
+    "inputs": {
+      "fps": 25,
+      "bit_depth": 8,
+      "images": [
+        "172",
+        0
+      ],
+      "audio": [
+        "113",
+        0
+      ]
+    },
+    "class_type": "CreateVideo",
+    "_meta": {
+      "title": "创建视频"
+    }
+  },
+  "141": {
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "140",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "保存视频"
+    }
+  },
+  "149": {
+    "inputs": {
+      "value": 832
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "150": {
+    "inputs": {
+      "value": 480
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "162": {
+    "inputs": {
+      "filename_prefix": "video/ComfyUI",
+      "format": "auto",
+      "codec": "auto",
+      "video": [
+        "138",
+        0
+      ]
+    },
+    "class_type": "SaveVideo",
+    "_meta": {
+      "title": "Save Video (Preview First Pass)"
+    }
+  },
+  "172": {
+    "inputs": {
+      "images.image0": [
+        "188:119",
+        0
+      ],
+      "images.image1": [
+        "324:310",
+        0
+      ]
+    },
+    "class_type": "BatchImagesNode",
+    "_meta": {
+      "title": "批量图像"
+    }
+  },
+  "174": {
+    "inputs": {
+      "mask": "painter-174-1786791120870.png [input]",
+      "width": 1216,
+      "height": 960,
+      "bg_color": "#000000",
+      "image": [
+        "32",
+        0
+      ]
+    },
+    "class_type": "Painter",
+    "_meta": {
+      "title": "Painter (Draw Mask for Character 1)"
+    }
+  },
+  "175": {
+    "inputs": {
+      "mask": "painter-175-1786791120942.png [input]",
+      "width": 1216,
+      "height": 960,
+      "bg_color": "#000000",
+      "image": [
+        "32",
+        0
+      ]
+    },
+    "class_type": "Painter",
+    "_meta": {
+      "title": "Painter (Draw Mask for Character 2)"
+    }
+  },
+  "188:13": {
+    "inputs": {
+      "unet_name": "Wan2_1-I2V-14B-480p_fp8_e4m3fn_scaled_KJ.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "188:16": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "188:29": {
+    "inputs": {
+      "vae_name": "Wan2_1_VAE_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "188:119": {
+    "inputs": {
+      "samples": [
+        "188:194",
+        0
+      ],
+      "vae": [
+        "188:29",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "188:129": {
+    "inputs": {
+      "mode": "two_speakers",
+      "width": [
+        "149",
+        0
+      ],
+      "height": [
+        "150",
+        0
+      ],
+      "length": 81,
+      "motion_frame_count": 9,
+      "audio_scale": 1,
+      "model": [
+        "188:179",
+        0
+      ],
+      "model_patch": [
+        "188:112",
+        0
+      ],
+      "positive": [
+        "188:14",
+        0
+      ],
+      "negative": [
+        "188:306",
+        0
+      ],
+      "vae": [
+        "188:29",
+        0
+      ],
+      "audio_encoder_output_1": [
+        "188:25",
+        0
+      ],
+      "start_image": [
+        "32",
+        0
+      ],
+      "mode.audio_encoder_output_2": [
+        "188:93",
+        0
+      ],
+      "mode.mask_1": [
+        "174",
+        1
+      ],
+      "mode.mask_2": [
+        "175",
+        1
+      ]
+    },
+    "class_type": "WanInfiniteTalkToVideo",
+    "_meta": {
+      "title": "WanInfiniteTalkToVideo"
+    }
+  },
+  "188:14": {
+    "inputs": {
+      "text": "The camera zooms in. Two characters are talking.",
+      "clip": [
+        "188:16",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP文本编码"
+    }
+  },
+  "188:25": {
+    "inputs": {
+      "audio_encoder": [
+        "188:26",
+        0
+      ],
+      "audio": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "AudioEncoderEncode",
+    "_meta": {
+      "title": "音频编码器编码"
+    }
+  },
+  "188:93": {
+    "inputs": {
+      "audio_encoder": [
+        "188:26",
+        0
+      ],
+      "audio": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "AudioEncoderEncode",
+    "_meta": {
+      "title": "音频编码器编码"
+    }
+  },
+  "188:112": {
+    "inputs": {
+      "name": "wan2.1_infiniteTalk_multi_fp16.safetensors"
+    },
+    "class_type": "ModelPatchLoader",
+    "_meta": {
+      "title": "加载模型补丁"
+    }
+  },
+  "188:26": {
+    "inputs": {
+      "audio_encoder_name": "wav2vec2-chinese-base_fp16.safetensors"
+    },
+    "class_type": "AudioEncoderLoader",
+    "_meta": {
+      "title": "加载音频编码器"
+    }
+  },
+  "188:179": {
+    "inputs": {
+      "lora_name": "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "188:13",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "188:190": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "188:191": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "188:129",
+        0
+      ],
+      "positive": [
+        "188:129",
+        1
+      ],
+      "negative": [
+        "188:129",
+        2
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG引导器"
+    }
+  },
+  "188:192": {
+    "inputs": {
+      "scheduler": "normal",
+      "steps": 6,
+      "denoise": 1,
+      "model": [
+        "188:129",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "基本调度器"
+    }
+  },
+  "188:193": {
+    "inputs": {
+      "noise_seed": 801592322954930
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "随机噪波"
+    }
+  },
+  "188:194": {
+    "inputs": {
+      "noise": [
+        "188:193",
+        0
+      ],
+      "guider": [
+        "188:191",
+        0
+      ],
+      "sampler": [
+        "188:190",
+        0
+      ],
+      "sigmas": [
+        "188:192",
+        0
+      ],
+      "latent_image": [
+        "188:129",
+        3
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "自定义采样器（高级）"
+    }
+  },
+  "188:306": {
+    "inputs": {
+      "conditioning": [
+        "188:14",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "条件零化"
+    }
+  },
+  "324:307": {
+    "inputs": {
+      "unet_name": "Wan2_1-I2V-14B-480p_fp8_e4m3fn_scaled_KJ.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "324:308": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "324:309": {
+    "inputs": {
+      "vae_name": "Wan2_1_VAE_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "324:310": {
+    "inputs": {
+      "samples": [
+        "324:322",
+        0
+      ],
+      "vae": [
+        "324:309",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "324:311": {
+    "inputs": {
+      "mode": "two_speakers",
+      "width": [
+        "149",
+        0
+      ],
+      "height": [
+        "150",
+        0
+      ],
+      "length": 81,
+      "motion_frame_count": 9,
+      "audio_scale": 1,
+      "model": [
+        "324:317",
+        0
+      ],
+      "model_patch": [
+        "324:315",
+        0
+      ],
+      "positive": [
+        "324:312",
+        0
+      ],
+      "negative": [
+        "324:323",
+        0
+      ],
+      "vae": [
+        "324:309",
+        0
+      ],
+      "audio_encoder_output_1": [
+        "324:313",
+        0
+      ],
+      "start_image": [
+        "32",
+        0
+      ],
+      "previous_frames": [
+        "188:119",
+        0
+      ],
+      "mode.audio_encoder_output_2": [
+        "324:314",
+        0
+      ],
+      "mode.mask_1": [
+        "174",
+        1
+      ],
+      "mode.mask_2": [
+        "175",
+        1
+      ]
+    },
+    "class_type": "WanInfiniteTalkToVideo",
+    "_meta": {
+      "title": "WanInfiniteTalkToVideo"
+    }
+  },
+  "324:312": {
+    "inputs": {
+      "text": "The camera zooms in. Two characters are talking.",
+      "clip": [
+        "324:308",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP文本编码"
+    }
+  },
+  "324:313": {
+    "inputs": {
+      "audio_encoder": [
+        "324:316",
+        0
+      ],
+      "audio": [
+        "24",
+        0
+      ]
+    },
+    "class_type": "AudioEncoderEncode",
+    "_meta": {
+      "title": "音频编码器编码"
+    }
+  },
+  "324:314": {
+    "inputs": {
+      "audio_encoder": [
+        "324:316",
+        0
+      ],
+      "audio": [
+        "90",
+        0
+      ]
+    },
+    "class_type": "AudioEncoderEncode",
+    "_meta": {
+      "title": "音频编码器编码"
+    }
+  },
+  "324:315": {
+    "inputs": {
+      "name": "wan2.1_infiniteTalk_multi_fp16.safetensors"
+    },
+    "class_type": "ModelPatchLoader",
+    "_meta": {
+      "title": "加载模型补丁"
+    }
+  },
+  "324:316": {
+    "inputs": {
+      "audio_encoder_name": "wav2vec2-chinese-base_fp16.safetensors"
+    },
+    "class_type": "AudioEncoderLoader",
+    "_meta": {
+      "title": "加载音频编码器"
+    }
+  },
+  "324:317": {
+    "inputs": {
+      "lora_name": "lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors",
+      "strength_model": 1,
+      "model": [
+        "324:307",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "324:318": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "324:319": {
+    "inputs": {
+      "cfg": 1,
+      "model": [
+        "324:311",
+        0
+      ],
+      "positive": [
+        "324:311",
+        1
+      ],
+      "negative": [
+        "324:311",
+        2
+      ]
+    },
+    "class_type": "CFGGuider",
+    "_meta": {
+      "title": "CFG引导器"
+    }
+  },
+  "324:320": {
+    "inputs": {
+      "scheduler": "normal",
+      "steps": 6,
+      "denoise": 1,
+      "model": [
+        "324:311",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "基本调度器"
+    }
+  },
+  "324:321": {
+    "inputs": {
+      "noise_seed": 813460550844535
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "随机噪波"
+    }
+  },
+  "324:322": {
+    "inputs": {
+      "noise": [
+        "324:321",
+        0
+      ],
+      "guider": [
+        "324:319",
+        0
+      ],
+      "sampler": [
+        "324:318",
+        0
+      ],
+      "sigmas": [
+        "324:320",
+        0
+      ],
+      "latent_image": [
+        "324:311",
+        3
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "自定义采样器（高级）"
+    }
+  },
+  "324:323": {
+    "inputs": {
+      "conditioning": [
+        "324:312",
+        0
+      ]
+    },
+    "class_type": "ConditioningZeroOut",
+    "_meta": {
+      "title": "条件零化"
+    }
+  }
+}
