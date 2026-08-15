@@ -25,6 +25,7 @@ from tools.generation import register_workflow_generation_tools, register_regene
 from tools.job import register_job_tools
 from tools.publish import register_publish_tools
 from tools.workflow import register_workflow_tools
+from tools.mcp_resources import register_mcp_resources
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -204,6 +205,9 @@ if publish_manager:
     register_publish_tools(mcp, asset_registry, publish_manager)
 else:
     logger.error("Publish manager not available - publish tools will not be registered")
+
+# Register MCP Resources & Prompts (read-only context + expert templates)
+register_mcp_resources(mcp, comfyui_client, asset_registry, workflow_manager, gpu_guard)
 
 if __name__ == "__main__":
     # Check if running as MCP command (stdio) or standalone (streamable-http)
