@@ -858,23 +858,98 @@ is_within(source_path, comfyui_output_root)  # Validates containment
 - **ComfyUI Output Root**: 2-5 candidate checks with validation (O(5) file system checks)
 - **Caching**: Detection results cached in `PublishConfig` instance
 
+## High-Order Extensible Subsystems
+
+### 1. MCP Native Resources & Prompts Architecture
+
+```
+[ AI Agent / MCP Client ]
+      │ (Read URI Context - Zero Tool Call Round-trip)
+      ├───────────► comfyui://system/gpu-health  ──► GpuGuard + /system_stats
+      ├───────────► comfyui://models/checkpoints ──► Loader Deduplication
+      ├───────────► comfyui://workflows          ──► WorkflowManager definitions
+      ├───────────► comfyui://characters         ──► CharacterVault SQLite records
+      │
+      │ (Inject Expert Prompt Tuning)
+      └───────────► @mcp.prompt("flux_photo_prompt", ...) ──► Expert Parameterized Text
+```
+
+- **Zero Round-Trip Efficiency**: Resources allow the client to inject system health and model catalogs directly into system prompts, preventing LLM hallucinations about model names.
+- **Expert Prompts**: Encapsulate architectural nuances (e.g. FLUX natural language preference vs. SDXL tag weighting, LTX-Video camera syntax).
+
+---
+
+### 2. Character & Style Consistency Vault
+
+```
+[ CharacterVault (SQLite WAL) ]
+      ├── Table: character_profiles (character_id, trigger_words, lora, reference_images, style_preset)
+      │
+      ├── apply_character(character_id, prompt, negative_prompt)
+      │     ├─ Prepend character trigger keywords to positive prompt
+      │     ├─ Prepend negative triggers
+      │     ├─ Expand style preset into rendering modifiers
+      │     └─ Return LoRA binding metadata
+      │
+      └── CRUD API: save_profile, get_profile, list_profiles, delete_profile
+```
+
+- **Dual-Layer Persistence**: SQLite database stored alongside `asset_registry.db` ensures character designs and style sheets persist across server lifecycles.
+- **Declarative Injection**: Generative tools and pipeline orchestrators automatically merge character profiles without manual prompt concatenation.
+
+---
+
+### 3. Game/Web Asset Pipeline Engine
+
+```
+Source Asset ──► [ remove_image_background ] ──► Transparent RGBA PNG
+                       │
+                       ├─ Mode "auto": Corner pixel variance analysis
+                       ├─ Mode "color": Studio chroma key with Gaussian feathering
+                       └─ Mode "grabcut": OpenCV iterative graph-cut segmentation
+
+Animation Video ──► [ build_sprite_sheet ] ──► Master Atlas PNG + TexturePacker JSON
+                       │
+                       ├─ Multi-keyframe extraction via PyAV
+                       ├─ Optimal square-grid packing (rows x cols)
+                       ├─ Cell dimension normalization & padding
+                       └─ Frame UV coordinate JSON map generation
+```
+
+- **In-Memory Transformation**: High-speed processing using Pillow, OpenCV, and NumPy without intermediate disk I/O bottlenecks.
+- **Lineage Integrity**: All derived assets automatically record `parent_asset_id` and `generation_type` (`"matting"`, `"sprite_sheet"`).
+
+---
+
+### 4. Modular Subgraph Pipeline Orchestrator
+
+```
+[ PipelineOrchestrator ]
+      │
+      ├── 1. Step Parser & Character Injector
+      │     └─ Merges character_id settings into step parameters
+      │
+      ├── 2. Dataflow Pipe
+      │     └─ Automatically injects previous step's asset_id / filename into next step's input
+      │
+      ├── 3. Step Execution Dispatcher
+      │     ├─ Generator tools (T2I / Song / Video)
+      │     ├─ Post-processors (remove_background / generate_sprite_sheet)
+      │     └─ Arbitrary workflow JSONs in WorkflowManager
+      │
+      └── 4. Lineage Chaining & Self-Healing Diagnosis
+            ├─ Links Step N asset to Step N-1 asset
+            └─ On error: invokes ErrorDiagnoser for structured parameter recovery
+```
+
+---
+
 ## Future Considerations
 
 ### Potential Improvements
 
-- **Persistent asset registry**: Database backend for production (SQLite option)
 - **History compression**: Compress large `comfy_history` snapshots
 - **Rate limiting**: Prevent spam polling in `get_job()`
-- **Health checks**: ComfyUI connectivity monitoring
-- **Metrics**: Generation time, success rates
-- **Batch operations**: Generate multiple assets
-- **Streaming**: Real-time progress updates
-- **Session filtering enhancements**: More granular conversation isolation
+- **Streaming**: Real-time WebSocket / SSE progress updates for long video renders
+- **Distributed locking**: Multi-instance ComfyUI cluster load balancing
 
-### Scalability
-
-Current design is single-instance. For scale:
-- Add database backend for asset registry
-- Implement distributed locking for workflow execution
-- Add queue system for high-volume scenarios
-- Consider caching layer for ComfyUI responses

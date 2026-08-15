@@ -8,6 +8,10 @@ Complete technical reference for ComfyUI MCP Server tools, parameters, and behav
 - [Viewing Tools](#viewing-tools)
 - [Job Management Tools](#job-management-tools)
 - [Asset Management Tools](#asset-management-tools)
+- [Character & Style Consistency Vault Tools](#character--style-consistency-vault-tools)
+- [Game/Web Asset Pipeline & Modular Pipeline Tools](#gameweb-asset-pipeline--modular-pipeline-tools)
+- [MCP Native Resources](#mcp-native-resources)
+- [MCP Native Prompts](#mcp-native-prompts)
 - [Configuration Tools](#configuration-tools)
 - [Workflow Tools](#workflow-tools)
 - [Publish Tools](#publish-tools)
@@ -1267,6 +1271,312 @@ Manifest uses simple `key → filename` mapping (no arrays in v1). Updates are a
 - *Calls `generate_image(prompt="a sunset")` → gets asset_id*
 - *Calls `publish_asset(asset_id="...", manifest_key="hero-image")` → auto-generates filename with source format, updates manifest*
 - *Reports: "Published to /gen/asset_0b3eacbc.png, added to manifest as 'hero-image'*
+
+---
+
+## Character & Style Consistency Vault Tools
+
+Maintain visual and character consistency across multiple generation sessions by storing profiles in a persistent SQLite database.
+
+### save_character_profile
+
+Create or update a persistent character or style profile.
+
+**Signature:**
+```python
+save_character_profile(
+    character_id: str,
+    display_name: str,
+    description: str = "",
+    trigger_words: str = "",
+    negative_trigger: str = "",
+    lora_name: str | None = None,
+    lora_strength: float = 0.75,
+    reference_images: list[str] | None = None,
+    style_preset: str | None = None,
+    default_params: dict | None = None,
+    tags: list[str] | None = None
+) -> dict
+```
+
+**Parameters:**
+- `character_id` (str, required): Unique identifier slug (e.g. `"detective_john"`)
+- `display_name` (str, required): Human-readable name (e.g. `"Detective John"`)
+- `description` (str): Free-form backstory / notes
+- `trigger_words` (str): Keywords automatically prepended to positive prompts (e.g. `"1man, cybernetic left eye, dark trenchcoat"`)
+- `negative_trigger` (str): Keywords automatically prepended to negative prompts
+- `lora_name` (str): Model filename in ComfyUI `models/loras/`
+- `lora_strength` (float): Strength scaling (0.0 to 1.0, default 0.75)
+- `reference_images` (list[str]): Image paths in ComfyUI `input/` folder
+- `style_preset` (str): Style keyword preset (`"anime"`, `"photorealistic"`, `"cyberpunk"`, `"pixel_art"`, `"oil_painting"`, `"watercolor"`, `"fantasy"`, `"comic"`, `"3d_render"`, `"sketch"`)
+- `default_params` (dict): Generation parameter overrides (e.g. `{"steps": 30, "cfg": 7.0}`)
+- `tags` (list[str]): Search tags (e.g. `["protagonist", "sci-fi"]`)
+
+---
+
+### get_character_profile
+
+Retrieve full configuration of a character profile.
+
+**Signature:**
+```python
+get_character_profile(character_id: str) -> dict
+```
+
+---
+
+### list_character_profiles
+
+Search and browse character profiles with multi-dimensional filtering.
+
+**Signature:**
+```python
+list_character_profiles(
+    tag: str | None = None,
+    style_preset: str | None = None,
+    query: str | None = None,
+    limit: int = 50
+) -> dict
+```
+
+---
+
+### delete_character_profile
+
+Permanently delete a character profile from the SQLite vault.
+
+**Signature:**
+```python
+delete_character_profile(character_id: str) -> dict
+```
+
+---
+
+### apply_character_to_prompt
+
+Inject character features (triggers, style presets, LoRA configuration) into a prompt before generation.
+
+**Signature:**
+```python
+apply_character_to_prompt(
+    character_id: str,
+    prompt: str,
+    negative_prompt: str = ""
+) -> dict
+```
+
+**Returns:**
+```json
+{
+  "character_id": "detective_john",
+  "display_name": "Detective John",
+  "prompt": "1man, cybernetic left eye, dark trenchcoat, standing in the rain, cyberpunk aesthetic, neon lights",
+  "negative_prompt": "blurry face, low quality",
+  "lora_name": "detective_john_v2.safetensors",
+  "lora_strength": 0.8,
+  "reference_images": ["ref_front.png"],
+  "default_params": {"steps": 30, "cfg": 7.0}
+}
+```
+
+---
+
+## Game/Web Asset Pipeline & Modular Pipeline Tools
+
+Tools for post-processing generated assets into production-ready game and web formats, as well as orchestrating multi-stage execution pipelines.
+
+### remove_background
+
+Extract the primary subject and produce a 32-bit transparent RGBA PNG.
+
+**Signature:**
+```python
+remove_background(
+    asset_id: str,
+    mode: str = "auto",
+    bgcolor: str | None = None,
+    tolerance: int = 32,
+    feather: int = 2
+) -> dict
+```
+
+**Parameters:**
+- `asset_id` (str, required): Source image asset ID
+- `mode` (str): Segmentation algorithm:
+  - `"auto"`: Evaluates corner pixel variance; uses color keying if background is uniform, otherwise GrabCut
+  - `"color"`: Chroma/color keying for studio backgrounds (supports `"white"`, `"black"`, `"green"`, hex `#ffffff`)
+  - `"grabcut"`: OpenCV iterative graph-cut foreground extraction
+- `bgcolor` (str): Target background color for color keying
+- `tolerance` (int): Color distance tolerance (default 32)
+- `feather` (int): Alpha channel edge smoothing radius in pixels (default 2)
+
+**Returns:**
+```json
+{
+  "asset_id": "asset_matting_uuid",
+  "asset_url": "http://localhost:8188/view?filename=transparent_hero.png&type=output",
+  "filename": "transparent_hero.png",
+  "mime_type": "image/png",
+  "bytes_size": 184520,
+  "parent_asset_id": "source_asset_uuid",
+  "generation_type": "matting",
+  "status": "success"
+}
+```
+
+---
+
+### generate_sprite_sheet
+
+Slice and pack animation video loops or image sequences into a unified texture atlas with standard game engine JSON coordinates.
+
+**Signature:**
+```python
+generate_sprite_sheet(
+    asset_id: str,
+    frame_count: int = 8,
+    columns: int | None = None,
+    frame_width: int | None = None,
+    frame_height: int | None = None,
+    remove_bg: bool = False,
+    format: str = "png"
+) -> dict
+```
+
+**Parameters:**
+- `asset_id` (str, required): Source video or image asset ID
+- `frame_count` (int): Number of animation frames to sample (default 8)
+- `columns` (int): Number of grid columns in atlas (auto-calculated if None)
+- `frame_width` / `frame_height` (int): Target frame size for scaling
+- `remove_bg` (bool): If True, runs background removal on each frame before atlas packing
+- `format` (str): `"png"` (lossless with alpha) or `"webp"`
+
+**Returns:**
+```json
+{
+  "asset_id": "asset_atlas_uuid",
+  "asset_url": "http://localhost:8188/view?filename=spritesheet_hero.png&type=output",
+  "filename": "spritesheet_hero.png",
+  "mime_type": "image/png",
+  "bytes_size": 395820,
+  "parent_asset_id": "source_video_uuid",
+  "generation_type": "sprite_sheet",
+  "frame_count": 8,
+  "grid": "2x4",
+  "size": {"w": 1024, "h": 512},
+  "atlas_metadata": {
+    "frames": {
+      "frame_000.png": {"frame": {"x": 2, "y": 2, "w": 254, "h": 254}, "rotated": false, "trimmed": false},
+      "frame_001.png": {"frame": {"x": 258, "y": 2, "w": 254, "h": 254}, "rotated": false, "trimmed": false}
+    },
+    "meta": {
+      "app": "ComfyUI MCP Server Asset Pipeline",
+      "version": "1.0",
+      "format": "RGBA8888",
+      "size": {"w": 1024, "h": 512}
+    }
+  },
+  "status": "success"
+}
+```
+
+---
+
+### run_pipeline
+
+Execute a multi-stage composite workflow pipeline in a single tool call with automatic dataflow passing and lineage chaining.
+
+**Signature:**
+```python
+run_pipeline(
+    steps: list[dict],
+    pipeline_name: str | None = None
+) -> dict
+```
+
+**Step Definition Schema:**
+- `tool` / `workflow` (str, required): Tool name or workflow ID
+- `step_name` (str): Label for step
+- `params` (dict): Parameters for the tool/workflow
+- `input_from` (str): Dependency pointer (`"previous"`, `"step_0"`, `"asset:<uuid>"`)
+- `character_id` (str): Optional character profile to inject
+
+**Returns:**
+```json
+{
+  "status": "success",
+  "pipeline_name": "character_animation_pipeline",
+  "total_steps": 3,
+  "total_duration_sec": 12.4,
+  "completed_steps": [
+    {"step_index": 0, "step_name": "t2i", "tool": "generate_image", "asset_id": "id_1", "duration_sec": 4.1},
+    {"step_index": 1, "step_name": "matting", "tool": "remove_background", "asset_id": "id_2", "duration_sec": 0.8},
+    {"step_index": 2, "step_name": "i2v", "tool": "api_video_minimax_h3_i2v", "asset_id": "id_3", "duration_sec": 7.5}
+  ],
+  "final_asset": {
+    "asset_id": "id_3",
+    "filename": "video_out.mp4",
+    "asset_url": "http://localhost:8188/view?filename=video_out.mp4&type=output",
+    "mime_type": "video/mp4"
+  }
+}
+```
+
+---
+
+### list_pipeline_recipes
+
+Browse built-in high-frequency composite pipeline recipes.
+
+**Signature:**
+```python
+list_pipeline_recipes() -> dict
+```
+
+**Built-in Recipes:**
+1. `t2i_to_2k_upscale`: Text-to-Image + 2K Upscaling
+2. `t2i_to_transparent_sticker`: Text-to-Image + Transparent PNG extraction
+3. `character_to_sprite_sheet`: Character generation + Action loop video + Sprite Sheet packing
+4. `character_sheet_multiview`: Reference generation + 6-angle character views
+
+---
+
+## MCP Native Resources
+
+Read-only, URI-addressable context resources accessible by MCP clients without Tool Call round-trips.
+
+| URI | Name | Description |
+|---|---|---|
+| `comfyui://system/gpu-health` | GPU Health Status | Real-time VRAM usage, free memory, queue depth, and health status (`healthy`/`busy`/`saturated`) |
+| `comfyui://models/checkpoints` | Checkpoint Models | Categorized model lists across UNET, Diffusion, CLIP, and Checkpoint loaders |
+| `comfyui://models/loras` | LoRA Models | Available LoRA model filenames with usage guidance |
+| `comfyui://workflows` | Workflow Catalog | Auto-discovered parameterized workflows with parameter types and media classifications |
+| `comfyui://characters` | Character Vault Catalog | All saved character and style consistency profiles in the SQLite vault |
+| `comfyui://characters/{character_id}` | Character Profile Details | Detailed parameters and trigger words for a single character profile |
+| `comfyui://assets/{asset_id}` | Asset Metadata | Full provenance, generation parameters, prompt, seed, and download URL |
+| `comfyui://assets/{asset_id}/lineage` | Asset Lineage Tree | Ancestry chain and derived children (family tree) |
+
+---
+
+## MCP Native Prompts
+
+Parametric prompt templates that inject expert tuning for specific model architectures.
+
+### flux_photo_prompt
+Tuned for FLUX natural-language preference.
+- **Parameters**: `subject`, `style` (default: `"photorealistic"`), `lighting`, `camera`, `mood`
+
+### cinematic_video_prompt
+Tuned for LTX-Video and MiniMax H3 motion and camera directions.
+- **Parameters**: `scene`, `motion`, `camera_movement`, `duration`, `style`
+
+### character_sheet_prompt
+Tuned for Qwen multi-angle character sheets (2511/2512 variants).
+- **Parameters**: `character_name`, `appearance`, `outfit`, `poses`, `art_style`
+
+### music_generation_prompt
+Tuned for AceStep and MiniMax Music structured tags and lyrics format.
+- **Parameters**: `genre`, `mood`, `instruments`, `tempo`, `theme`, `vocal_style`
 
 ---
 

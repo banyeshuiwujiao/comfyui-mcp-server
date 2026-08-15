@@ -210,6 +210,46 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 - **`view_audio_preview(asset_id, mode="waveform"|"analysis")`**：返回深色科技感波形图或特征诊断。
 - `view_image` 对音频资产自动渲染波形图。
 
+### 4.0.4 角色与画风一致性档案库（Character Vault）
+
+在连续绘本、游戏角色资产、连贯分镜设计等场景中，Agent 可以将人物外貌、专有触发词、绑定 LoRA、参考图与画风预设保存为持久化档案：
+- **`save_character_profile(character_id, display_name, trigger_words, ...)`**：保存人物档案（如 `detective_john`）。
+- **`apply_character_to_prompt(character_id, prompt)`**：自动将人物触发词置顶注入、负向词补充、画风预设关键词展开（如 `anime`, `cyberpunk`, `pixel_art` 等），并返回 LoRA 绑定信息。
+- **`list_character_profiles()`** / **`get_character_profile()`**：支持按标签或画风检索。
+- **直接指定 `character_id`**：在 `run_pipeline` 步骤中直接指定 `character_id`，流水线自动完成注入。
+
+### 4.0.5 游戏/Web 资产后处理（透明抠图与精灵图集打包）
+
+- **一键抠图去底（`remove_background`）**：
+  - `mode="auto"`：自动评估四角方差区分纯色演播室背景与自然场景；
+  - `mode="color"`：精准色键识别（纯白、纯黑、绿幕等），配合高斯抗锯齿羽化；
+  - `mode="grabcut"`：利用 OpenCV 图割算法智能提取主体；
+  - 输出 32-bit 透明通道 RGBA PNG，自动记录 `generation_type="matting"` 与父级血缘。
+- **Sprite Sheet 纹理图集打包（`generate_sprite_sheet`）**：
+  - 将视频动作循环（I2V）或序列图切片按最优接近正方形排版；
+  - 同步输出包含每一帧精确像素矩形 `{"x", "y", "w", "h"}` 的标准 JSON 元数据（兼容 TexturePacker / PixiJS / Phaser / Unity）。
+
+### 4.0.6 模块化流水线连招（Modular Subgraph Pipelines）
+
+- **`run_pipeline(steps=[...], pipeline_name=...)`**：单次 Tool Call 串联多阶段工作流，中间产物（`asset_id` / `filename`）自动在步骤间流动并串联血缘树。
+- **`list_pipeline_recipes()`**：浏览预置经典连招：
+  1. `t2i_to_2k_upscale`：文生图 + 2K 高清超分；
+  2. `t2i_to_transparent_sticker`：文生图 + 自动抠图透明贴纸；
+  3. `character_to_sprite_sheet`：角色生成 + 动作视频 + 精灵图集打包；
+  4. `character_sheet_multiview`：角色生成 + Qwen 6 视角多角度输出。
+
+### 4.0.7 深度拥抱 MCP 原生能力（Resources & Prompts）
+
+- **MCP Resources（只读上下文注入）**：
+  - `comfyui://system/gpu-health`：实时查询显存占用、剩余 GB 与队列状态（`healthy`/`busy`/`saturated`），避免盲目提交重任务导致 OOM。
+  - `comfyui://models/checkpoints` / `comfyui://models/loras`：直读真实模型与 LoRA 清单，彻底杜绝模型名幻觉。
+  - `comfyui://workflows` / `comfyui://characters`：直读已注册工作流目录与角色档案库。
+- **MCP Prompts（专家提示词模板）**：
+  - `flux_photo_prompt`：针对 FLUX 自然语言摄影长提示词偏好调优；
+  - `cinematic_video_prompt`：针对 LTX-Video / MiniMax H3 电影运镜调优；
+  - `character_sheet_prompt`：针对多视角角色设定表调优；
+  - `music_generation_prompt`：针对 AceStep 音乐标签与结构化歌词调优。
+
 ### 4.1 各视频工作流节点要点
 
 **i2v / t2v 通用骨架**（以 `api_video_minimax_h3_i2v.json` 为例）：
