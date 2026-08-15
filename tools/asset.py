@@ -6,8 +6,11 @@ from typing import Optional
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image as FastMCPImage
 from asset_processor import (
+    create_video_animated_gif,
+    create_video_contact_sheet,
     encode_preview_for_mcp,
     estimate_response_chars,
+    extract_video_metadata,
     fetch_asset_bytes,
     get_cache_key,
 )
@@ -33,8 +36,8 @@ def register_asset_tools(
         This tool allows the AI agent to view generated images inline in the chat interface,
         enabling closed-loop iteration: generate → view → adjust → regenerate.
         
-        Only supports image assets (PNG, JPEG, WebP, GIF). For audio/video assets, use the
-        asset_url directly or implement separate viewing tools.
+        Supports image assets (PNG, JPEG, WebP, GIF) and automatically generates keyframe
+        filmstrips for video assets (MP4, WebM, MOV).
         
         Args:
             asset_id: Asset ID returned from generation tools (e.g., generate_image)
@@ -49,10 +52,10 @@ def register_asset_tools(
         # Cleanup expired assets periodically
         asset_registry.cleanup_expired()
         
-        # Validate asset_id exists in registry (security: only our assets)
+        # Validate asset_id exists in registry
         asset_record = asset_registry.get_asset(asset_id)
         if not asset_record:
-            return {"error": f"Asset {asset_id} not found (registry is in-memory and resets on restart). Generate a new asset to regenerate."}
+            return {"error": f"Asset {asset_id} not found. Generate a new asset to regenerate."}
         
         # Get asset URL (computed from stable identity)
         asset_url = asset_record.asset_url or asset_record.get_asset_url(asset_registry.comfyui_base_url)
@@ -71,54 +74,68 @@ def register_asset_tools(
                 "bytes_size": asset_record.bytes_size,
                 "workflow_id": asset_record.workflow_id,
                 "prompt_id": asset_record.prompt_id,
+                "parent_asset_id": asset_record.parent_asset_id,
+                "root_asset_id": asset_record.root_asset_id,
+                "generation_type": asset_record.generation_type,
+                "prompt": asset_record.prompt,
                 "created_at": asset_record.created_at.isoformat(),
                 "expires_at": asset_record.expires_at.isoformat() if asset_record.expires_at else None
             }
         
-        # Enforce: only "thumb" mode for scoped version
         if mode != "thumb":
             return {
-                "error": f"Mode '{mode}' not supported in scoped version. Use 'thumb' or 'metadata'."
+                "error": f"Mode '{mode}' not supported. Use 'thumb' or 'metadata'."
             }
+
+        is_video = (
+            (asset_record.mime_type and asset_record.mime_type.startswith("video/"))
+            or asset_record.filename.lower().endswith((".mp4", ".webm", ".mov", ".avi", ".mkv"))
+        )
+
+        # Video asset automatic keyframe contact sheet preview
+        if is_video:
+            try:
+                video_bytes = fetch_asset_bytes(asset_url)
+                sheet_bytes = create_video_contact_sheet(
+                    video_bytes,
+                    num_frames=4,
+                    max_width=max_dim or 1024,
+                    quality=75
+                )
+                logger.info(f"view_image generated video contact sheet for {asset_id} ({len(sheet_bytes)} bytes)")
+                return FastMCPImage(data=sheet_bytes, format="webp")
+            except Exception as e:
+                logger.warning(f"Failed to generate video contact sheet preview for {asset_id}: {e}")
+                return {
+                    "status": "unsupported_inline",
+                    "asset_id": asset_id,
+                    "asset_url": asset_url,
+                    "mime_type": asset_record.mime_type,
+                    "filename": asset_record.filename,
+                    "error": str(e),
+                    "message": "Failed to decode video preview. Open asset_url directly."
+                }
         
-        # Validate content type (only images supported for inline viewing)
+        # Validate image content type
         supported_types = ("image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif")
         if asset_record.mime_type not in supported_types:
-            # Non-image assets (video/audio): we cannot inline them, but returning
-            # a hard error is unhelpful. Surface a structured metadata block so the
-            # agent still gets the URL and can pass it to the user / a player.
             return {
                 "status": "unsupported_inline",
                 "asset_id": asset_id,
                 "asset_url": asset_url,
                 "mime_type": asset_record.mime_type,
                 "filename": asset_record.filename,
-                "subfolder": asset_record.subfolder,
-                "folder_type": asset_record.folder_type,
-                "width": asset_record.width,
-                "height": asset_record.height,
-                "bytes_size": asset_record.bytes_size,
-                "message": (
-                    f"Asset is '{asset_record.mime_type}', not an image, so it cannot be "
-                    f"inlined as a thumbnail. Open the asset_url directly in a player/browser. "
-                    f"(Inline video/audio preview requires ffmpeg, which is not available here.)"
-                ),
+                "message": f"Asset is '{asset_record.mime_type}', not supported for image preview."
             }
         
-        # Set conservative defaults
         if max_dim is None:
-            max_dim = 512  # Hard cap for scoped version
+            max_dim = 512
         if max_b64_chars is None:
-            max_b64_chars = 100_000  # 100KB base64 payload (conservative to prevent hangs)
+            max_b64_chars = 100_000
         
-        # Process image for inline viewing
         try:
-            # Fetch image bytes using computed URL
-            image_url = asset_url
-            image_bytes = fetch_asset_bytes(image_url)
-            
-            # Encode with new function (accepts bytes directly)
-            cache_key = get_cache_key(asset_id, max_dim, 70)  # Use quality=70 for cache key
+            image_bytes = fetch_asset_bytes(asset_url)
+            cache_key = get_cache_key(asset_id, max_dim, 70)
             encoded = encode_preview_for_mcp(
                 image_bytes,
                 max_dim=max_dim,
@@ -127,7 +144,6 @@ def register_asset_tools(
                 cache_key=cache_key,
             )
             
-            # Log telemetry
             logger.info(
                 f"view_image success: asset_id={asset_id} "
                 f"src={asset_record.bytes_size}B src_dims={asset_record.width}x{asset_record.height} "
@@ -136,22 +152,16 @@ def register_asset_tools(
                 f"response_est={estimate_response_chars(encoded.b64_chars)}chars"
             )
             
-            # Use FastMCP.Image for inline display (not dict)
-            # FastMCP.Image takes raw bytes and format string
             return FastMCPImage(data=encoded.raw_bytes, format="webp")
             
         except ValueError as e:
-            # Image too large or processing failed - REFUSE-INLINE (non-lethal failure)
             logger.warning(f"Refusing to inline image for {asset_id}: {e}")
             return {
                 "content": [{
                     "type": "text",
                     "text": (
                         f"Could not inline image (exceeds budget: {e}). "
-                        f"Asset ID: {asset_id}. "
-                        f"URL: {asset_record.asset_url}. "
-                        f"Source size: {asset_record.bytes_size} bytes. "
-                        f"Source dimensions: {asset_record.width}x{asset_record.height}. "
+                        f"Asset ID: {asset_id}. URL: {asset_url}. "
                         f"Hint: Open URL locally or use metadata mode."
                     )
                 }]
@@ -159,5 +169,72 @@ def register_asset_tools(
         except ImportError as e:
             return {"error": f"Image processing not available: {e}. Install Pillow: pip install Pillow"}
         except Exception as e:
-            logger.exception(f"Failed to process asset {asset_id} for viewing")
-            return {"error": f"Failed to process asset: {str(e)}"}
+            logger.exception(f"Failed to view image {asset_id}")
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def view_video_preview(
+        asset_id: str,
+        mode: str = "strip",
+        num_frames: int = 4,
+        max_dim: Optional[int] = None
+    ) -> dict:
+        """View a generated video asset inline via keyframe contact sheet strip, animated GIF, or metadata.
+        
+        Allows the AI to inspect motion continuity, lighting, and consistency across time.
+        
+        Args:
+            asset_id: Video Asset ID returned from generation tools
+            mode: Preview mode - "strip" (multi-keyframe contact sheet with timestamps, default), "gif" (animated GIF loop), or "metadata" (duration/fps/dimensions)
+            num_frames: Number of keyframes to extract for contact sheet (default: 4)
+            max_dim: Maximum dimension in pixels (default: 1024 for strip, 256 for gif)
+            
+        Returns:
+            FastMCPImage preview object or metadata dictionary.
+        """
+        asset_registry.cleanup_expired()
+        asset_record = asset_registry.get_asset(asset_id)
+        if not asset_record:
+            return {"error": f"Asset {asset_id} not found."}
+
+        asset_url = asset_record.asset_url or asset_record.get_asset_url(asset_registry.comfyui_base_url)
+
+        try:
+            video_bytes = fetch_asset_bytes(asset_url)
+
+            if mode == "metadata":
+                v_meta = extract_video_metadata(video_bytes)
+                return {
+                    "asset_id": asset_record.asset_id,
+                    "asset_url": asset_url,
+                    "filename": asset_record.filename,
+                    "workflow_id": asset_record.workflow_id,
+                    "duration_sec": v_meta.get("duration_sec"),
+                    "fps": v_meta.get("fps"),
+                    "total_frames": v_meta.get("total_frames"),
+                    "width": v_meta.get("width") or asset_record.width,
+                    "height": v_meta.get("height") or asset_record.height,
+                    "has_audio": v_meta.get("has_audio", False),
+                    "prompt": asset_record.prompt,
+                }
+            elif mode == "gif":
+                gif_dim = max_dim or 256
+                gif_bytes = create_video_animated_gif(video_bytes, max_frames=16, target_fps=8, max_dim=gif_dim)
+                logger.info(f"view_video_preview generated animated GIF for {asset_id} ({len(gif_bytes)} bytes)")
+                return FastMCPImage(data=gif_bytes, format="gif")
+            elif mode == "strip":
+                strip_dim = max_dim or 1024
+                sheet_bytes = create_video_contact_sheet(
+                    video_bytes,
+                    num_frames=num_frames,
+                    max_width=strip_dim,
+                    quality=75
+                )
+                logger.info(f"view_video_preview generated filmstrip for {asset_id} ({len(sheet_bytes)} bytes)")
+                return FastMCPImage(data=sheet_bytes, format="webp")
+            else:
+                return {"error": f"Unsupported mode '{mode}'. Use 'strip', 'gif', or 'metadata'."}
+
+        except Exception as e:
+            logger.exception(f"Failed to generate video preview for {asset_id}")
+            return {"error": f"Failed to generate video preview: {str(e)}"}

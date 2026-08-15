@@ -6,14 +6,28 @@ import os
 import requests
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 try:
-    from PIL import Image, ImageOps
+    from PIL import Image, ImageOps, ImageDraw, ImageFont
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
     logging.warning("Pillow not available. Image processing features will be limited.")
+
+try:
+    import av
+    AV_AVAILABLE = True
+except ImportError:
+    AV_AVAILABLE = False
+    logging.debug("PyAV not available.")
+
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    logging.debug("OpenCV not available.")
 
 logger = logging.getLogger("AssetProcessor")
 
@@ -373,4 +387,289 @@ def encode_preview_for_mcp(
     )
     
     return result
+
+
+# ==================== Video Processing Utilities ====================
+
+def extract_video_metadata(video_bytes: bytes) -> Dict[str, Any]:
+    """Extract metadata from video bytes (duration, fps, total_frames, width, height, format)."""
+    meta: Dict[str, Any] = {
+        "duration_sec": None,
+        "fps": None,
+        "total_frames": None,
+        "width": None,
+        "height": None,
+        "has_audio": False,
+        "format": None
+    }
+    if not video_bytes:
+        return meta
+
+    # 1. Try PyAV (fast in-memory decoding)
+    if AV_AVAILABLE:
+        try:
+            with av.open(BytesIO(video_bytes)) as container:
+                meta["format"] = container.format.name
+                if container.duration:
+                    meta["duration_sec"] = round(float(container.duration / av.time_base), 3)
+                v_stream = next((s for s in container.streams if s.type == "video"), None)
+                if v_stream:
+                    meta["width"] = v_stream.width
+                    meta["height"] = v_stream.height
+                    meta["fps"] = round(float(v_stream.average_rate or v_stream.base_rate or 24), 2)
+                    meta["total_frames"] = v_stream.frames if v_stream.frames > 0 else (
+                        int(meta["duration_sec"] * meta["fps"]) if meta["duration_sec"] and meta["fps"] else None
+                    )
+                a_stream = next((s for s in container.streams if s.type == "audio"), None)
+                meta["has_audio"] = a_stream is not None
+                return meta
+        except Exception as e:
+            logger.debug(f"PyAV metadata extraction failed: {e}")
+
+    # 2. Fallback: OpenCV
+    if CV2_AVAILABLE:
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+                tf.write(video_bytes)
+                tf_path = tf.name
+            try:
+                cap = cv2.VideoCapture(tf_path)
+                if cap.isOpened():
+                    meta["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    meta["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    meta["fps"] = round(float(cap.get(cv2.CAP_PROP_FPS)), 2)
+                    meta["total_frames"] = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    if meta["fps"] and meta["total_frames"]:
+                        meta["duration_sec"] = round(meta["total_frames"] / meta["fps"], 3)
+                cap.release()
+            finally:
+                if os.path.exists(tf_path):
+                    os.remove(tf_path)
+            return meta
+        except Exception as e:
+            logger.debug(f"OpenCV metadata extraction failed: {e}")
+
+    return meta
+
+
+def extract_video_keyframes(
+    video_bytes: bytes,
+    num_frames: int = 4,
+    max_dim: int = 512
+) -> List[Tuple[float, Any]]:
+    """Extract evenly spaced keyframes from video bytes with timestamps.
+    
+    Returns:
+        List of (timestamp_seconds, PIL.Image) tuples.
+    """
+    if not PIL_AVAILABLE:
+        raise ImportError("Pillow is required for keyframe extraction")
+    if num_frames <= 0:
+        num_frames = 4
+
+    decoded_frames: List[Tuple[float, Any]] = []
+
+    # 1. Primary: PyAV in-memory decoding
+    if AV_AVAILABLE:
+        try:
+            with av.open(BytesIO(video_bytes)) as container:
+                v_stream = next((s for s in container.streams if s.type == "video"), None)
+                if v_stream:
+                    fps = float(v_stream.average_rate or 24)
+                    all_frames = []
+                    for idx, frame in enumerate(container.decode(v_stream)):
+                        ts = float(frame.time) if frame.time is not None else (idx / fps)
+                        all_frames.append((ts, frame.to_image()))
+
+                    if all_frames:
+                        total = len(all_frames)
+                        if total <= num_frames:
+                            selected = all_frames
+                        else:
+                            indices = [int(round(i * (total - 1) / (num_frames - 1))) for i in range(num_frames)]
+                            selected = [all_frames[i] for i in indices]
+
+                        decoded_frames = selected
+        except Exception as e:
+            logger.debug(f"PyAV keyframe decoding failed: {e}")
+
+    # 2. Fallback: OpenCV
+    if not decoded_frames and CV2_AVAILABLE:
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+                tf.write(video_bytes)
+                tf_path = tf.name
+            try:
+                cap = cv2.VideoCapture(tf_path)
+                if cap.isOpened():
+                    total_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    fps = float(cap.get(cv2.CAP_PROP_FPS) or 24)
+                    if total_count > 0:
+                        indices = (
+                            list(range(total_count))
+                            if total_count <= num_frames
+                            else [int(round(i * (total_count - 1) / (num_frames - 1))) for i in range(num_frames)]
+                        )
+                        for f_idx in indices:
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
+                            ret, frame_bgr = cap.read()
+                            if ret and frame_bgr is not None:
+                                frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                                pil_img = Image.fromarray(frame_rgb)
+                                ts = round(f_idx / fps, 2)
+                                decoded_frames.append((ts, pil_img))
+                cap.release()
+            finally:
+                if os.path.exists(tf_path):
+                    os.remove(tf_path)
+        except Exception as e:
+            logger.debug(f"OpenCV keyframe decoding failed: {e}")
+
+    # 3. Fallback: Pillow Animated Image (e.g. GIF / Animated WebP)
+    if not decoded_frames:
+        try:
+            from PIL import ImageSequence
+            with Image.open(BytesIO(video_bytes)) as img:
+                seq = list(ImageSequence.Iterator(img))
+                if seq:
+                    total = len(seq)
+                    indices = (
+                        list(range(total))
+                        if total <= num_frames
+                        else [int(round(i * (total - 1) / (num_frames - 1))) for i in range(num_frames)]
+                    )
+                    duration_per_frame = img.info.get("duration", 100) / 1000.0
+                    for i in indices:
+                        frame_copy = seq[i].convert("RGB")
+                        ts = round(i * duration_per_frame, 2)
+                        decoded_frames.append((ts, frame_copy))
+        except Exception as e:
+            logger.debug(f"Pillow sequence decoding failed: {e}")
+
+    if not decoded_frames:
+        raise ValueError("Could not decode any video frames from provided bytes")
+
+    # Resize each frame to max_dim if needed
+    resized_frames = []
+    for ts, img in decoded_frames:
+        w, h = img.size
+        if max_dim and (w > max_dim or h > max_dim):
+            if w > h:
+                new_w = max_dim
+                new_h = max(1, int(h * (max_dim / w)))
+            else:
+                new_h = max_dim
+                new_w = max(1, int(w * (max_dim / h)))
+            img_resized = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        else:
+            img_resized = img
+        resized_frames.append((ts, img_resized))
+
+    return resized_frames
+
+
+def create_video_contact_sheet(
+    video_bytes: bytes,
+    num_frames: int = 4,
+    layout: str = "auto",
+    max_width: int = 1024,
+    quality: int = 75
+) -> bytes:
+    """Stitch video keyframes into a labeled contact sheet / filmstrip image.
+    
+    Returns:
+        WebP encoded image bytes containing the stitched keyframes with timestamp overlays.
+    """
+    keyframes = extract_video_keyframes(video_bytes, num_frames=num_frames, max_dim=512)
+    if not keyframes:
+        raise ValueError("No keyframes extracted for contact sheet")
+
+    num = len(keyframes)
+    first_w, first_h = keyframes[0][1].size
+
+    # Determine layout rows and cols
+    if layout == "grid" or (layout == "auto" and num >= 6):
+        cols = (num + 1) // 2
+        rows = 2
+    else:
+        # Horizontal filmstrip
+        cols = num
+        rows = 1
+
+    gap = 6
+    bg_color = (20, 24, 30)  # Sleek dark theme
+    border_color = (45, 55, 72)
+
+    total_w = cols * first_w + (cols + 1) * gap
+    total_h = rows * first_h + (rows + 1) * gap
+
+    sheet = Image.new("RGB", (total_w, total_h), bg_color)
+    draw = ImageDraw.Draw(sheet)
+
+    for idx, (ts, frame) in enumerate(keyframes):
+        r = idx // cols
+        c = idx % cols
+        x = gap + c * (first_w + gap)
+        y = gap + r * (first_h + gap)
+
+        # Paste frame
+        sheet.paste(frame, (x, y))
+
+        # Draw frame border
+        draw.rectangle([x, y, x + first_w - 1, y + first_h - 1], outline=border_color, width=1)
+
+        # Draw timestamp overlay in bottom-right corner
+        ts_text = f"{ts:.1f}s"
+        # Badge background
+        text_w = len(ts_text) * 7 + 8
+        text_h = 16
+        badge_x0 = x + first_w - text_w - 4
+        badge_y0 = y + first_h - text_h - 4
+        badge_x1 = x + first_w - 4
+        badge_y1 = y + first_h - 4
+
+        draw.rectangle([badge_x0, badge_y0, badge_x1, badge_y1], fill=(0, 0, 0))
+        draw.text((badge_x0 + 4, badge_y0 + 1), ts_text, fill=(255, 255, 255))
+
+    # Downscale entire sheet if exceeding max_width
+    if total_w > max_width:
+        scale = max_width / total_w
+        new_w = max_width
+        new_h = max(1, int(total_h * scale))
+        sheet = sheet.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    out = BytesIO()
+    sheet.save(out, format="WEBP", quality=quality, method=5)
+    return out.getvalue()
+
+
+def create_video_animated_gif(
+    video_bytes: bytes,
+    max_frames: int = 16,
+    target_fps: int = 8,
+    max_dim: int = 256,
+    quality: int = 60
+) -> bytes:
+    """Generate an animated GIF/WebP thumbnail from video bytes."""
+    keyframes = extract_video_keyframes(video_bytes, num_frames=max_frames, max_dim=max_dim)
+    if not keyframes:
+        raise ValueError("No frames extracted for animated preview")
+
+    pil_frames = [f[1] for f in keyframes]
+    duration_ms = max(50, int(1000 / target_fps))
+
+    out = BytesIO()
+    pil_frames[0].save(
+        out,
+        format="GIF",
+        save_all=True,
+        append_images=pil_frames[1:],
+        duration=duration_ms,
+        loop=0,
+        optimize=True
+    )
+    return out.getvalue()
+
 
