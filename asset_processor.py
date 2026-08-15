@@ -29,6 +29,22 @@ except ImportError:
     CV2_AVAILABLE = False
     logging.debug("OpenCV not available.")
 
+import re
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    logging.debug("NumPy not available.")
+
+try:
+    from scipy import signal
+    SCIPY_AVAILABLE = True
+except ImportError:
+    SCIPY_AVAILABLE = False
+    logging.debug("SciPy not available.")
+
 logger = logging.getLogger("AssetProcessor")
 
 # Simple in-memory cache for processed previews
@@ -671,5 +687,290 @@ def create_video_animated_gif(
         optimize=True
     )
     return out.getvalue()
+
+
+# ==================== Audio Processing Utilities ====================
+
+def extract_audio_samples(audio_bytes: bytes) -> Tuple[Any, int, float]:
+    """Decode audio bytes into a 1D float32 numpy array in range [-1.0, 1.0].
+    
+    Returns:
+        (samples_ndarray, sample_rate, duration_seconds)
+    """
+    if not NUMPY_AVAILABLE:
+        raise ImportError("NumPy is required for audio feature analysis")
+
+    # 1. Primary: PyAV (supports MP3, WAV, FLAC, OGG, AAC, M4A)
+    if AV_AVAILABLE:
+        try:
+            with av.open(BytesIO(audio_bytes)) as container:
+                a_stream = next((s for s in container.streams if s.type == "audio"), None)
+                if not a_stream:
+                    raise ValueError("No audio stream found in media container")
+
+                sample_rate = a_stream.sample_rate or 44100
+                frames = [f.to_ndarray() for f in container.decode(a_stream)]
+                if not frames:
+                    raise ValueError("No audio frames decoded")
+
+                # Concatenate across time
+                audio_np = np.concatenate(frames, axis=1)  # shape (channels, samples)
+                # Convert to mono
+                if audio_np.ndim > 1 and audio_np.shape[0] > 1:
+                    mono = np.mean(audio_np, axis=0)
+                else:
+                    mono = audio_np.flatten()
+
+                # Normalize float values to [-1.0, 1.0]
+                if mono.dtype == np.int16:
+                    samples = (mono / 32768.0).astype(np.float32)
+                elif mono.dtype == np.int32:
+                    samples = (mono / 2147483648.0).astype(np.float32)
+                elif mono.dtype == np.uint8:
+                    samples = ((mono - 128) / 128.0).astype(np.float32)
+                else:
+                    samples = mono.astype(np.float32)
+
+                duration_sec = len(samples) / sample_rate
+                return samples, sample_rate, duration_sec
+        except Exception as e:
+            logger.debug(f"PyAV audio decoding failed: {e}")
+
+    # 2. Fallback: Standard wave module (uncompressed WAV only)
+    try:
+        import wave
+        with wave.open(BytesIO(audio_bytes), "rb") as wf:
+            sample_rate = wf.getframerate()
+            n_channels = wf.getnchannels()
+            sampwidth = wf.getsampwidth()
+            n_frames = wf.getnframes()
+            raw_bytes = wf.readframes(n_frames)
+
+            if sampwidth == 2:
+                data = np.frombuffer(raw_bytes, dtype=np.int16)
+                samples = (data / 32768.0).astype(np.float32)
+            elif sampwidth == 4:
+                data = np.frombuffer(raw_bytes, dtype=np.int32)
+                samples = (data / 2147483648.0).astype(np.float32)
+            else:
+                data = np.frombuffer(raw_bytes, dtype=np.uint8)
+                samples = ((data - 128) / 128.0).astype(np.float32)
+
+            if n_channels > 1:
+                samples = samples.reshape(-1, n_channels).mean(axis=1)
+
+            duration_sec = len(samples) / sample_rate
+            return samples, sample_rate, duration_sec
+    except Exception as e:
+        logger.debug(f"Wave module audio decoding failed: {e}")
+
+    raise ValueError("Could not decode audio from provided bytes (install PyAV or supply WAV format)")
+
+
+def parse_lyrics_sections(lyrics_text: str, duration_sec: float) -> List[Dict[str, Any]]:
+    """Parse structured lyrics tags (e.g. [Verse 1], [Chorus], [Outro]) and map to time intervals."""
+    if not lyrics_text or not lyrics_text.strip():
+        return []
+
+    # Split by bracketed section tags like [Verse], [Chorus 1], etc.
+    parts = re.split(r"(\[[a-zA-Z0-9_\s\-]+\])", lyrics_text.strip())
+
+    sections = []
+    current_tag = "Intro"
+    current_text = ""
+
+    for part in parts:
+        part_clean = part.strip()
+        if not part_clean:
+            continue
+        if part_clean.startswith("[") and part_clean.endswith("]"):
+            if current_text or (sections or (current_tag and current_tag != "Intro")):
+                sections.append({
+                    "name": current_tag,
+                    "text": current_text.strip(),
+                    "line_count": len([l for l in current_text.splitlines() if l.strip()]) or (1 if current_text.strip() else 0)
+                })
+                current_text = ""
+            current_tag = part_clean[1:-1].strip()
+        else:
+            current_text += ("\n" if current_text else "") + part_clean
+
+    if current_text or current_tag:
+        sections.append({
+            "name": current_tag,
+            "text": current_text.strip(),
+            "line_count": len([l for l in current_text.splitlines() if l.strip()]) or (1 if current_text.strip() else 0)
+        })
+
+    if not sections:
+        return []
+
+    # Distribute sections evenly across duration
+    total_sections = len(sections)
+    sec_duration = duration_sec / total_sections if total_sections > 0 else duration_sec
+
+    mapped_sections = []
+    for idx, sec in enumerate(sections):
+        start_t = round(idx * sec_duration, 2)
+        end_t = round(min(duration_sec, (idx + 1) * sec_duration), 2)
+        mapped_sections.append({
+            "section": sec["name"],
+            "start_sec": start_t,
+            "end_sec": end_t,
+            "duration_sec": round(end_t - start_t, 2),
+            "text": sec["text"],
+            "line_count": sec["line_count"]
+        })
+
+    return mapped_sections
+
+
+def analyze_audio_features(
+    audio_bytes: bytes,
+    prompt_lyrics: Optional[str] = None
+) -> Dict[str, Any]:
+    """Analyze comprehensive audio features including BPM, loudness, silence segments, and lyrics alignment."""
+    samples, sample_rate, duration_sec = extract_audio_samples(audio_bytes)
+    if len(samples) == 0:
+        return {"error": "Empty audio data"}
+
+    # 1. RMS & Peak Loudness (dBFS)
+    rms = np.sqrt(np.mean(samples**2) + 1e-10)
+    rms_db = round(float(20 * np.log10(rms)), 2)
+    peak = np.max(np.abs(samples))
+    peak_db = round(float(20 * np.log10(peak + 1e-10)), 2)
+
+    # 2. Silence detection (windows with RMS < -38 dBFS)
+    win_len = int(sample_rate * 0.1)  # 100ms window
+    hop_len = int(sample_rate * 0.05)  # 50ms hop
+    num_windows = (len(samples) - win_len) // hop_len
+    silences = []
+    in_silence = False
+    silence_start = 0.0
+
+    if num_windows > 0:
+        for i in range(num_windows):
+            w = samples[i * hop_len : i * hop_len + win_len]
+            w_rms_db = 20 * np.log10(np.sqrt(np.mean(w**2) + 1e-10))
+            t = (i * hop_len) / sample_rate
+            if w_rms_db < -38:
+                if not in_silence:
+                    in_silence = True
+                    silence_start = t
+            else:
+                if in_silence:
+                    in_silence = False
+                    if t - silence_start >= 0.25:
+                        silences.append({
+                            "start_sec": round(silence_start, 2),
+                            "end_sec": round(t, 2),
+                            "duration_sec": round(t - silence_start, 2)
+                        })
+        if in_silence and duration_sec - silence_start >= 0.25:
+            silences.append({
+                "start_sec": round(silence_start, 2),
+                "end_sec": round(duration_sec, 2),
+                "duration_sec": round(duration_sec - silence_start, 2)
+            })
+
+    # 3. Tempo / BPM estimation
+    estimated_bpm = None
+    if SCIPY_AVAILABLE and len(samples) >= sample_rate * 1.0:
+        try:
+            env = np.abs(signal.hilbert(samples))
+            decimate_factor = max(1, sample_rate // 200)
+            env_down = signal.decimate(env, decimate_factor)
+            env_down -= np.mean(env_down)
+            corr = signal.correlate(env_down, env_down, mode="full")
+            corr = corr[len(corr) // 2:]
+            fps_env = sample_rate / decimate_factor
+            min_lag = int(fps_env * (60.0 / 220))  # max 220 BPM
+            max_lag = int(fps_env * (60.0 / 55))   # min 55 BPM
+            if max_lag < len(corr):
+                peak_lag = min_lag + int(np.argmax(corr[min_lag:max_lag]))
+                raw_bpm = 60.0 / (peak_lag / fps_env)
+                estimated_bpm = round(float(raw_bpm), 1)
+        except Exception as e:
+            logger.debug(f"BPM estimation error: {e}")
+
+    # 4. Waveform summary array (64 normalized points)
+    summary_bins = 64
+    bin_size = len(samples) // summary_bins
+    waveform_summary = []
+    if bin_size > 0:
+        for i in range(summary_bins):
+            chunk = samples[i * bin_size : (i + 1) * bin_size]
+            p = float(np.max(np.abs(chunk))) if len(chunk) > 0 else 0.0
+            waveform_summary.append(round(p, 3))
+
+    # 5. Lyrics / Section breakdown
+    sections = parse_lyrics_sections(prompt_lyrics or "", duration_sec)
+
+    return {
+        "duration_sec": round(float(duration_sec), 2),
+        "sample_rate": sample_rate,
+        "rms_dbfs": rms_db,
+        "peak_dbfs": peak_db,
+        "estimated_bpm": estimated_bpm,
+        "silent_segments": silences,
+        "has_silence": len(silences) > 0,
+        "silence_count": len(silences),
+        "lyrics_sections": sections,
+        "waveform_summary": waveform_summary
+    }
+
+
+def render_waveform_image(
+    audio_bytes: bytes,
+    width: int = 512,
+    height: int = 128,
+    bg_color: Tuple[int, int, int] = (20, 24, 30),
+    bar_color: Tuple[int, int, int] = (0, 210, 255)
+) -> bytes:
+    """Render a visual waveform diagram as WebP bytes."""
+    if not PIL_AVAILABLE or not NUMPY_AVAILABLE:
+        raise ImportError("Pillow and NumPy are required for waveform rendering")
+
+    samples, sample_rate, duration_sec = extract_audio_samples(audio_bytes)
+    num_bars = width // 3
+    bin_size = len(samples) // num_bars
+    if bin_size <= 0:
+        raise ValueError("Audio is too short to render waveform")
+
+    img = Image.new("RGB", (width, height), bg_color)
+    draw = ImageDraw.Draw(img)
+
+    peaks = []
+    for i in range(num_bars):
+        chunk = samples[i * bin_size : (i + 1) * bin_size]
+        peak = float(np.max(np.abs(chunk))) if len(chunk) > 0 else 0.0
+        peaks.append(peak)
+
+    max_p = max(peaks) if peaks and max(peaks) > 0 else 1.0
+    mid_y = height // 2
+
+    # Draw center baseline
+    draw.line([(0, mid_y), (width, mid_y)], fill=(45, 55, 72), width=1)
+
+    # Draw amplitude bars
+    for i, p in enumerate(peaks):
+        x = i * 3 + 2
+        bar_h = int((p / max_p) * (height * 0.42))
+        y0 = mid_y - bar_h
+        y1 = mid_y + bar_h
+        draw.line([(x, y0), (x, y1)], fill=bar_color, width=2)
+
+    # Draw duration badge
+    dur_text = f"{duration_sec:.1f}s"
+    text_w = len(dur_text) * 7 + 8
+    badge_x0 = width - text_w - 6
+    badge_y0 = height - 20
+    draw.rectangle([badge_x0, badge_y0, width - 6, height - 4], fill=(0, 0, 0))
+    draw.text((badge_x0 + 4, badge_y0 + 1), dur_text, fill=(200, 210, 220))
+
+    out = BytesIO()
+    img.save(out, format="WEBP", quality=80)
+    return out.getvalue()
+
 
 
