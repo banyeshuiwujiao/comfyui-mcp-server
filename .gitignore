@@ -3,6 +3,9 @@ __pycache__/
 *.pyc
 archive/
 
-# Runtime logs
+# Runtime logs and data
 mcp_server.err
 mcp_server.log
+data/*.db
+data/*.db-wal
+data/*.db-shm

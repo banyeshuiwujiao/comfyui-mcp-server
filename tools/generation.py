@@ -32,6 +32,8 @@ def register_workflow_generation_tools(
         def _tool_impl(*args, **kwargs):
             # Extract return_inline_preview if present (not a workflow parameter)
             return_inline_preview = kwargs.pop("return_inline_preview", False)
+            # Lineage tracking (optional)
+            parent_asset_id = kwargs.pop("parent_asset_id", None)
             # Execution control (optional, not workflow parameters)
             timeout = kwargs.pop("timeout", 360)
             poll_interval = kwargs.pop("poll_interval", 2.0)
@@ -157,13 +159,21 @@ def register_workflow_generation_tools(
                         ).strip()
 
                 # Register asset and build response
+                prompt_val = provided_params.get("prompt") or provided_params.get("tags")
+                neg_prompt_val = provided_params.get("negative_prompt")
+                seed_val = provided_params.get("seed")
                 return register_and_build_response(
                     result,
                     definition.workflow_id,
                     asset_registry,
                     tool_name=definition.tool_name,
                     return_inline_preview=return_inline_preview,
-                    session_id=session_id
+                    session_id=session_id,
+                    parent_asset_id=parent_asset_id,
+                    generation_type=provided_params.get("generation_type", "t2i"),
+                    prompt=prompt_val,
+                    negative_prompt=neg_prompt_val,
+                    seed=seed_val,
                 )
                 
             except Exception as exc:
@@ -473,7 +483,12 @@ def register_regenerate_tool(
                 asset_registry,
                 tool_name="regenerate",
                 return_inline_preview=return_inline_preview,
-                session_id=asset.session_id  # Preserve original session
+                session_id=asset.session_id,  # Preserve original session
+                parent_asset_id=asset_id,
+                generation_type="regenerate",
+                prompt=param_overrides.get("prompt") if param_overrides else asset.prompt,
+                negative_prompt=param_overrides.get("negative_prompt") if param_overrides else asset.negative_prompt,
+                seed=seed if seed is not None else asset.seed,
             )
         except Exception as e:
             logger.exception(f"Failed to regenerate asset {asset_id}")

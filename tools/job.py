@@ -219,7 +219,9 @@ def register_job_tools(
     def list_assets(
         limit: int = 10, 
         workflow_id: Optional[str] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        parent_asset_id: Optional[str] = None,
+        root_asset_id: Optional[str] = None
     ) -> dict:
         """List recently generated assets for AI memory and browsing.
         
@@ -231,10 +233,12 @@ def register_job_tools(
             limit: Maximum number of assets to return (default: 10)
             workflow_id: Filter by workflow type (e.g., "generate_image", "generate_song")
             session_id: Filter by conversation session (limits to current conversation)
+            parent_asset_id: Filter by direct parent asset ID
+            root_asset_id: Filter by root lineage asset ID
         
         Returns:
             Dict with:
-            - assets: List of asset records with asset_id, asset_url, metadata
+            - assets: List of asset records with asset_id, asset_url, metadata, lineage
             - count: Number of assets returned
             - workflow_id_filter: Applied workflow filter (if any)
             - session_id_filter: Applied session filter (if any)
@@ -246,14 +250,17 @@ def register_job_tools(
             # Get only images
             list_assets(workflow_id="generate_image")
             
-            # Get assets from current conversation only
-            list_assets(session_id="current")
-            
-            # Combine filters
-            list_assets(limit=3, workflow_id="generate_image", session_id="current")
+            # Get all variations derived from a specific root asset
+            list_assets(root_asset_id="abc-123")
         """
         try:
-            assets = asset_registry.list_assets(limit=limit, workflow_id=workflow_id, session_id=session_id)
+            assets = asset_registry.list_assets(
+                limit=limit,
+                workflow_id=workflow_id,
+                session_id=session_id,
+                parent_asset_id=parent_asset_id,
+                root_asset_id=root_asset_id
+            )
             
             asset_list = []
             for asset in assets:
@@ -270,6 +277,12 @@ def register_job_tools(
                     "width": asset.width,
                     "height": asset.height,
                     "bytes_size": asset.bytes_size,
+                    "parent_asset_id": asset.parent_asset_id,
+                    "root_asset_id": asset.root_asset_id,
+                    "generation_type": asset.generation_type,
+                    "prompt": asset.prompt,
+                    "seed": asset.seed,
+                    "tags": asset.tags,
                     "created_at": asset.created_at.isoformat(),
                     "expires_at": asset.expires_at.isoformat() if asset.expires_at else None,
                     "session_id": asset.session_id
@@ -279,7 +292,9 @@ def register_job_tools(
                 "assets": asset_list,
                 "count": len(asset_list),
                 "workflow_id_filter": workflow_id,
-                "session_id_filter": session_id
+                "session_id_filter": session_id,
+                "parent_asset_id_filter": parent_asset_id,
+                "root_asset_id_filter": root_asset_id
             }
         except Exception as e:
             logger.exception("Failed to list assets")
@@ -287,27 +302,25 @@ def register_job_tools(
     
     @mcp.tool()
     def get_asset_metadata(asset_id: str) -> dict:
-        """Get full metadata and provenance for a generated asset.
+        """Get full metadata, parameters, and provenance for a generated asset.
         
         Returns comprehensive information about an asset including:
         - Asset details (dimensions, size, type)
-        - Workflow and prompt information
+        - Lineage details (parent_asset_id, root_asset_id, generation_type)
+        - Workflow, prompt, negative_prompt, and seed
         - Full ComfyUI history snapshot (for provenance)
         - Original submitted workflow (for regeneration context)
-        
-        This provides iteration context - the AI can see what parameters
-        were used and potentially regenerate with modifications.
         
         Args:
             asset_id: Asset ID from generation tools or list_assets
         
         Returns:
-            Dict with complete asset metadata, history, and workflow information
+            Dict with complete asset metadata, history, lineage, and workflow information
         """
         try:
             asset = asset_registry.get_asset(asset_id)
             if not asset:
-                return {"error": f"Asset {asset_id} not found (registry is in-memory and resets on restart). Generate a new asset to regenerate."}
+                return {"error": f"Asset {asset_id} not found."}
             
             asset_url = asset.asset_url or asset.get_asset_url(asset_registry.comfyui_base_url)
             
@@ -323,8 +336,16 @@ def register_job_tools(
                 "bytes_size": asset.bytes_size,
                 "workflow_id": asset.workflow_id,
                 "prompt_id": asset.prompt_id,
+                "parent_asset_id": asset.parent_asset_id,
+                "root_asset_id": asset.root_asset_id,
+                "generation_type": asset.generation_type,
+                "prompt": asset.prompt,
+                "negative_prompt": asset.negative_prompt,
+                "seed": asset.seed,
+                "tags": asset.tags,
                 "created_at": asset.created_at.isoformat(),
                 "expires_at": asset.expires_at.isoformat() if asset.expires_at else None,
+                "session_id": asset.session_id,
                 "metadata": asset.metadata
             }
             
@@ -339,6 +360,82 @@ def register_job_tools(
             return result
         except Exception as e:
             logger.exception(f"Failed to get asset metadata for {asset_id}")
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def get_asset_lineage(asset_id: str) -> dict:
+        """Get complete ancestry lineage and derived children for an asset.
+        
+        Allows the AI to trace the full evolution tree of an asset:
+        - Ancestors (parent chain up to the root asset)
+        - Direct children (assets derived directly from this asset)
+        - Entire family tree (all assets sharing the same root lineage)
+        
+        Args:
+            asset_id: Asset ID to inspect
+            
+        Returns:
+            Dict with ancestors, children, and family tree graph.
+        """
+        try:
+            return asset_registry.get_lineage(asset_id)
+        except Exception as e:
+            logger.exception(f"Failed to get asset lineage for {asset_id}")
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def search_assets(
+        query: Optional[str] = None,
+        tag: Optional[str] = None,
+        workflow_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        limit: int = 10
+    ) -> dict:
+        """Search historically generated assets across sessions by keyword, tag, or workflow.
+        
+        Enables long-term memory retrieval across sessions.
+        
+        Args:
+            query: Search keyword in prompt or filename
+            tag: Filter by specific tag (e.g., "cyberpunk", "character")
+            workflow_id: Filter by workflow name
+            session_id: Filter by conversation session
+            limit: Maximum number of assets to return (default 10)
+            
+        Returns:
+            Dict with matching assets and total match count.
+        """
+        try:
+            assets = asset_registry.search_assets(
+                query=query,
+                tag=tag,
+                workflow_id=workflow_id,
+                session_id=session_id,
+                limit=limit
+            )
+            asset_list = []
+            for asset in assets:
+                asset_url = asset.asset_url or asset.get_asset_url(asset_registry.comfyui_base_url)
+                asset_list.append({
+                    "asset_id": asset.asset_id,
+                    "asset_url": asset_url,
+                    "filename": asset.filename,
+                    "workflow_id": asset.workflow_id,
+                    "generation_type": asset.generation_type,
+                    "parent_asset_id": asset.parent_asset_id,
+                    "root_asset_id": asset.root_asset_id,
+                    "prompt": asset.prompt,
+                    "tags": asset.tags,
+                    "created_at": asset.created_at.isoformat(),
+                })
+            return {
+                "assets": asset_list,
+                "count": len(asset_list),
+                "query": query,
+                "tag": tag
+            }
+        except Exception as e:
+            logger.exception("Failed to search assets")
             return {"error": str(e)}
     
     @mcp.tool()

@@ -14,7 +14,13 @@ def register_and_build_response(
     asset_registry,
     tool_name: Optional[str] = None,
     return_inline_preview: bool = False,
-    session_id: Optional[str] = None
+    session_id: Optional[str] = None,
+    parent_asset_id: Optional[str] = None,
+    generation_type: Optional[str] = None,
+    prompt: Optional[str] = None,
+    negative_prompt: Optional[str] = None,
+    seed: Optional[int] = None,
+    tags: Optional[list] = None
 ) -> Dict[str, Any]:
     """Helper function to register asset and build response data.
 
@@ -27,6 +33,12 @@ def register_and_build_response(
         tool_name: Optional tool name (for workflow-backed tools)
         return_inline_preview: Whether to include inline preview
         session_id: Optional session identifier for conversation filtering
+        parent_asset_id: Optional parent asset ID for lineage tracking
+        generation_type: Optional generation category (e.g., "t2i", "regenerate", "upscale")
+        prompt: Optional positive prompt
+        negative_prompt: Optional negative prompt
+        seed: Optional generation seed
+        tags: Optional tags list
 
     Returns:
         Response data dict with asset_id, asset_url, metadata, etc.
@@ -55,7 +67,13 @@ def register_and_build_response(
         comfy_history=result.get("comfy_history"),
         submitted_workflow=result.get("submitted_workflow"),
         metadata=metadata,
-        session_id=session_id
+        session_id=session_id,
+        parent_asset_id=parent_asset_id,
+        generation_type=generation_type or ("regenerate" if tool_name == "regenerate" else "t2i"),
+        prompt=prompt,
+        negative_prompt=negative_prompt,
+        seed=seed,
+        tags=tags
     )
     
     # Build response data
@@ -74,6 +92,9 @@ def register_and_build_response(
         "width": asset_record.width,
         "height": asset_record.height,
         "bytes_size": asset_record.bytes_size,
+        "parent_asset_id": asset_record.parent_asset_id,
+        "root_asset_id": asset_record.root_asset_id,
+        "generation_type": asset_record.generation_type,
     }
     
     if tool_name:

@@ -39,6 +39,15 @@ class AssetRecord:
     
     # Session tracking for conversation isolation
     session_id: Optional[str] = None
+
+    # Lineage and provenance fields
+    parent_asset_id: Optional[str] = None
+    root_asset_id: Optional[str] = None
+    generation_type: Optional[str] = None  # e.g., "t2i", "i2i", "inpaint", "upscale", "i2v", "regenerate"
+    prompt: Optional[str] = None
+    negative_prompt: Optional[str] = None
+    seed: Optional[int] = None
+    tags: list[str] = field(default_factory=list)
     
     def get_asset_url(self, base_url: str) -> str:
         """Get asset URL for a given ComfyUI base URL.
