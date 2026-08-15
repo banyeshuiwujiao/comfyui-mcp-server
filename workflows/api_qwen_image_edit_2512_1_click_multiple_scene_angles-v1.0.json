@@ -287,7 +287,7 @@
   },
   "65:35:79": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -381,10 +381,7 @@
   },
   "65:35:84": {
     "inputs": {
-      "prompt": [
-        "67",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -448,7 +445,7 @@
   },
   "65:37:88": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -542,10 +539,7 @@
   },
   "65:37:93": {
     "inputs": {
-      "prompt": [
-        "69",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -609,7 +603,7 @@
   },
   "65:39:97": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -703,10 +697,7 @@
   },
   "65:39:102": {
     "inputs": {
-      "prompt": [
-        "68",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -770,7 +761,7 @@
   },
   "65:42:115": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -864,10 +855,7 @@
   },
   "65:42:120": {
     "inputs": {
-      "prompt": [
-        "70",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -931,7 +919,7 @@
   },
   "65:44:124": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -1013,10 +1001,7 @@
   },
   "65:44:128": {
     "inputs": {
-      "prompt": [
-        "71",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -1092,7 +1077,7 @@
   },
   "65:46:133": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -1156,10 +1141,7 @@
   },
   "65:46:137": {
     "inputs": {
-      "prompt": [
-        "73",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -1253,7 +1235,7 @@
   },
   "65:40:106": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -1347,10 +1329,7 @@
   },
   "65:40:111": {
     "inputs": {
-      "prompt": [
-        "72",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -1414,7 +1393,7 @@
   },
   "65:33:14": {
     "inputs": {
-      "prompt": "",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0
@@ -1508,10 +1487,7 @@
   },
   "65:33:17": {
     "inputs": {
-      "prompt": [
-        "66",
-        0
-      ],
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "48:10",
         0

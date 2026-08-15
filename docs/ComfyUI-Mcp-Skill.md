@@ -173,6 +173,14 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 - i2v/r2v 的 `prompt` 内 `<Picture 1>`/`<Picture 2>` 是 MiniMax H3 模型对首帧/参考图的语义引用，**无需 MCP 端做字符串替换**——图经 `PARAM_IMAGE`/`PARAM_IMAGE2` 绑定的 LoadImage 节点（i2v=`114`、r2v=`137`/`139`）加载后，模型自行对齐。
 - MCP 调用约定：给 i2v 传 `image`（即首帧，对应 `<Picture 1>`）；给 r2v 传 `image`+`image2`（对应 `<Picture 1>`/`<Picture 2>`）；t2v 不需要图。prompt 里的 `<Picture N>` 文案由工作流自带，改 prompt 时务必保留以免首帧语义丢失。
 
+**P2b 多视角工作流统一 prompt（Qwen 2511 / 2512）**
+- 两个 Qwen 多分支工作流（`api_qwen_image_edit_2511_...`、`api_qwen_image_edit_2512_...`）现已把每个分支的 `TextEncodeQwenImageEditPlus.prompt` 标记为 `PARAM_STR_PROMPT`。`run_workflow` / 自动注册工具只需传一个 `prompt`，即**统一覆盖**全部 6~9 个角度/场景分支的提示词（2511 覆盖 8 个分支、2512 覆盖 16 个分支 slot）。Agent 不再只能改输入图、无法改各分支提示词。
+
+**P2c 提交前校验工具 `validate_workflow`**
+- 新增 MCP 工具 `validate_workflow(workflow_id, overrides)`：在真正提交前做干跑校验，返回 `{ok, issues, checked_models, checked_images}`。
+- 检查三类常见失败源：① 残留的 `PARAM_` 占位符（漏传的必填/选填参数）；② loader 节点引用的模型文件（UNET/CLIP/VAE/Lora/Checkpoint/Diffusion）不在 ComfyUI 可用模型清单内；③ `LoadImage` 引用的输入图不在 ComfyUI `input/` 目录。
+- 建议在调用 `run_workflow` 前先调用它，提前暴露错误而非等 ComfyUI 拒绝 prompt。输入图检查依赖 `COMFYUI_INPUT_DIR` 环境变量或 ComfyUI `/view/input` 接口，无法探测时自动跳过该项。
+
 **P2 能力增强（模型清单 / 视频预览 / regenerate）**
 - `list_models` 现在会聚合 `UNETLoader` / `DiffusionLoader` / `CLIPLoader` / `VAELoader` / `LoraLoader` / `CheckpointLoaderSimple` 全部 loader 的模型名（去重），而不再只查 `CheckpointLoaderSimple`。本仓库 Flux2 / MiniMax H3 / Z-Image-Turbo 等均以 `UNETLoader`/`DiffusionLoader` 加载，之前 `list_models` 返回空、导致 `set_defaults` 校验误报"模型不存在"；现已对齐。
 - `view_image` 对视频/音频资产不再硬报错，而是返回结构化 `metadata`（`asset_url` / `mime_type` / 文件名 / 大小），并提示直接以播放器打开 URL。环境无 `ffmpeg`，暂不支持内联抽帧预览。

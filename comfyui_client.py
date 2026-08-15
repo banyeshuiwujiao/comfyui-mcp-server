@@ -1,6 +1,7 @@
 import requests
 import json
 import time
+import os
 import logging
 from typing import Any, Dict, Optional, Sequence
 from urllib.parse import quote
@@ -716,3 +717,32 @@ class ComfyUIClient:
         except requests.RequestException as e:
             logger.error(f"Failed to cancel prompt {prompt_id}: {e}")
             raise Exception(f"Failed to cancel prompt: {e}")
+
+    def list_input_files(self) -> Optional[list[str]]:
+        """Best-effort list of filenames in ComfyUI's input directory.
+
+        Resolution order:
+          1. ``COMFYUI_INPUT_DIR`` env var (local path).
+          2. HTTP probe of ``/view/input`` (recent ComfyUI builds return a JSON
+             array of filenames there).
+
+        Returns a list of filenames, or ``None`` if it cannot be determined
+        (callers should treat ``None`` as "skip input-file validation").
+        """
+        env_dir = os.getenv("COMFYUI_INPUT_DIR")
+        if env_dir and os.path.isdir(env_dir):
+            try:
+                return [f for f in os.listdir(env_dir)
+                        if os.path.isfile(os.path.join(env_dir, f))]
+            except OSError as e:
+                logger.debug("Failed to list COMFYUI_INPUT_DIR: %s", e)
+
+        try:
+            resp = requests.get(f"{self.base_url}/view/input", timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list):
+                    return [str(x) for x in data]
+        except Exception as e:  # noqa: BLE001 - best effort
+            logger.debug("Input listing probe failed: %s", e)
+        return None
