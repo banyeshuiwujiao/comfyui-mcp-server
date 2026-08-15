@@ -5,6 +5,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastmcp import FastMCP
+from managers.error_diagnoser import ErrorDiagnoser, find_closest_model
 from tools.helpers import register_and_build_response
 
 logger = logging.getLogger("MCP_Server__workflow")
@@ -88,9 +89,12 @@ def register_workflow_tools(
     comfyui_client,
     defaults_manager,
     asset_registry,
-    gpu_guard=None
+    gpu_guard=None,
+    error_diagnoser=None
 ):
     """Register workflow tools with the MCP server"""
+    if error_diagnoser is None:
+        error_diagnoser = ErrorDiagnoser(comfyui_client, defaults_manager)
     
     @mcp.tool()
     def list_workflows() -> dict:
@@ -185,8 +189,13 @@ def register_workflow_tools(
             )
             all_issues = pre_issues + inspect_issues
             if all_issues:
+                diagnosed = error_diagnoser.diagnose(
+                    error=f"Pre-flight validation failed: {'; '.join(all_issues)}",
+                    workflow=workflow,
+                    params=overrides,
+                )
                 return {
-                    "error": "Pre-flight validation failed; workflow was NOT submitted.",
+                    **diagnosed,
                     "issues": all_issues,
                     "workflow_id": workflow_id,
                     "checked_models": checked_models,
@@ -223,7 +232,12 @@ def register_workflow_tools(
             return response
         except Exception as exc:
             logger.exception("Workflow '%s' failed", workflow_id)
-            return {"error": str(exc)}
+            current_workflow = workflow if 'workflow' in locals() else None
+            return error_diagnoser.diagnose(
+                error=exc,
+                workflow=current_workflow,
+                params=overrides,
+            )
 
     @mcp.tool()
     def validate_workflow(

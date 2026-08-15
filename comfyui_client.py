@@ -262,6 +262,34 @@ class ComfyUIClient:
         return False
 
     @staticmethod
+    def _extract_node_error_dict(prompt_data: dict) -> Optional[dict]:
+        """Extract structured error details dictionary from ComfyUI history data."""
+        status = prompt_data.get("status", {})
+        if isinstance(status, dict):
+            messages = status.get("messages", [])
+            for msg in messages:
+                if isinstance(msg, list) and len(msg) >= 2 and msg[0] == "execution_error":
+                    data = msg[1] if isinstance(msg[1], dict) else {}
+                    return {
+                        "node_id": data.get("node_id"),
+                        "node_type": data.get("node_type"),
+                        "exception_type": data.get("exception_type"),
+                        "exception_message": data.get("exception_message"),
+                        "traceback": data.get("traceback"),
+                    }
+        if isinstance(status, list):
+            for entry in status:
+                if isinstance(entry, list) and len(entry) >= 2 and entry[0] == "execution_error":
+                    data = entry[1] if isinstance(entry[1], dict) else {}
+                    return {
+                        "node_id": data.get("node_id") if isinstance(data, dict) else None,
+                        "node_type": data.get("node_type") if isinstance(data, dict) else None,
+                        "exception_type": data.get("exception_type") if isinstance(data, dict) else None,
+                        "exception_message": data.get("exception_message") if isinstance(data, dict) else str(entry[1]),
+                    }
+        return None
+
+    @staticmethod
     def _extract_node_errors(prompt_data: dict) -> str:
         """Extract human-readable error details from ComfyUI history data.
 

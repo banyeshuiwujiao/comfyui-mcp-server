@@ -18,6 +18,7 @@ from managers.defaults_manager import DefaultsManager
 from managers.publish_manager import PublishConfig, PublishManager
 from managers.workflow_manager import WorkflowManager
 from managers.gpu_guard import GpuGuard
+from managers.error_diagnoser import ErrorDiagnoser
 from tools.asset import register_asset_tools
 from tools.configuration import register_configuration_tools
 from tools.generation import register_workflow_generation_tools, register_regenerate_tool
@@ -137,6 +138,7 @@ workflow_manager = WorkflowManager(WORKFLOW_DIR)
 gpu_guard = GpuGuard(COMFYUI_URL)
 defaults_manager = DefaultsManager(comfyui_client)
 asset_registry = AssetRegistry(ttl_hours=ASSET_TTL_HOURS, comfyui_base_url=COMFYUI_URL)
+error_diagnoser = ErrorDiagnoser(comfyui_client, defaults_manager)
 
 # Publish manager (always initialized, uses auto-detection)
 try:
@@ -192,11 +194,11 @@ mcp = FastMCP(
 
 # Register all MCP tools
 register_configuration_tools(mcp, comfyui_client, defaults_manager)
-register_workflow_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry, gpu_guard)
+register_workflow_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry, gpu_guard, error_diagnoser)
 register_asset_tools(mcp, asset_registry)
-register_workflow_generation_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry, gpu_guard)
-register_regenerate_tool(mcp, comfyui_client, asset_registry, gpu_guard)
-register_job_tools(mcp, comfyui_client, asset_registry)
+register_workflow_generation_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry, gpu_guard, error_diagnoser)
+register_regenerate_tool(mcp, comfyui_client, asset_registry, gpu_guard, error_diagnoser)
+register_job_tools(mcp, comfyui_client, asset_registry, error_diagnoser)
 # Always register publish tools (unconditional)
 if publish_manager:
     register_publish_tools(mcp, asset_registry, publish_manager)

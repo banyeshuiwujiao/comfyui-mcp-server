@@ -7,6 +7,7 @@ import random
 from typing import Any, Dict, Optional
 
 from fastmcp import FastMCP
+from managers.error_diagnoser import ErrorDiagnoser
 from managers.workflow_manager import AUDIO_OUTPUT_KEYS, VIDEO_OUTPUT_KEYS
 from models.workflow import WorkflowToolDefinition
 from tools.helpers import register_and_build_response
@@ -20,9 +21,12 @@ def register_workflow_generation_tools(
     comfyui_client,
     defaults_manager,
     asset_registry,
-    gpu_guard=None
+    gpu_guard=None,
+    error_diagnoser=None
 ):
     """Register workflow-backed generation tools (e.g., generate_image, generate_song)"""
+    if error_diagnoser is None:
+        error_diagnoser = ErrorDiagnoser(comfyui_client, defaults_manager)
 
     def _register_workflow_tool(definition: WorkflowToolDefinition):
         def _tool_impl(*args, **kwargs):
@@ -169,26 +173,14 @@ def register_workflow_generation_tools(
                     comfyui_client.refresh_models()
                     defaults_manager.refresh_model_set()
 
-                    provided_model = dict(bound.arguments).get("model")
-                    resolved_model = defaults_manager.get_default(namespace, "model", provided_model)
-
-                    if resolved_model and not defaults_manager.is_model_valid(namespace, resolved_model):
-                        is_valid, model_name, source = defaults_manager.validate_default_model(namespace)
-                        available_models = list(defaults_manager._available_models_set)
-                        sample_models = available_models[:5] if available_models else []
-
-                        error_msg = (
-                            f"Default model '{model_name}' (from {source} defaults) not found in ComfyUI checkpoints. "
-                            f"Set a valid model via `set_defaults`, config file, or env var. "
-                            f"Try `list_models` to see available checkpoints."
-                        )
-                        if sample_models:
-                            error_msg += f" Available models: {sample_models}"
-
-                        return {"error": error_msg}
-
                 logger.exception("Workflow '%s' failed", definition.workflow_id)
-                return {"error": str(exc)}
+                current_workflow = workflow if 'workflow' in locals() else None
+                current_params = provided_params if 'provided_params' in locals() else dict(bound.arguments)
+                return error_diagnoser.diagnose(
+                    error=exc,
+                    workflow=current_workflow,
+                    params=current_params,
+                )
 
         # Separate required and optional parameters to ensure correct ordering
         required_params = []
@@ -382,9 +374,12 @@ def register_regenerate_tool(
     mcp: FastMCP,
     comfyui_client,
     asset_registry,
-    gpu_guard=None
+    gpu_guard=None,
+    error_diagnoser=None
 ):
     """Register the regenerate tool for iterating on existing assets."""
+    if error_diagnoser is None:
+        error_diagnoser = ErrorDiagnoser(comfyui_client)
     
     @mcp.tool()
     def regenerate(
@@ -482,4 +477,9 @@ def register_regenerate_tool(
             )
         except Exception as e:
             logger.exception(f"Failed to regenerate asset {asset_id}")
-            return {"error": f"Failed to regenerate: {str(e)}"}
+            current_workflow = workflow if 'workflow' in locals() else None
+            return error_diagnoser.diagnose(
+                error=e,
+                workflow=current_workflow,
+                params=param_overrides,
+            )

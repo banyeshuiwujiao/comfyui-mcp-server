@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastmcp import FastMCP
+from managers.error_diagnoser import ErrorDiagnoser
 
 logger = logging.getLogger("MCP_Server")
 
@@ -11,9 +12,12 @@ logger = logging.getLogger("MCP_Server")
 def register_job_tools(
     mcp: FastMCP,
     comfyui_client,
-    asset_registry
+    asset_registry,
+    error_diagnoser=None
 ):
     """Register job and queue management tools with the MCP server"""
+    if error_diagnoser is None:
+        error_diagnoser = ErrorDiagnoser(comfyui_client)
     
     @mcp.tool()
     def get_queue_status() -> dict:
@@ -112,15 +116,29 @@ def register_job_tools(
                 if prompt_id in history:
                     prompt_data = history[prompt_id]
                     
-                    # Check for errors
-                    if "error" in prompt_data:
-                        error_info = prompt_data["error"]
+                    # Check for errors in history prompt_data
+                    status_obj = prompt_data.get("status", {})
+                    status_str = status_obj.get("status_str", "") if isinstance(status_obj, dict) else ""
+                    messages = status_obj.get("messages", []) if isinstance(status_obj, dict) else status_obj if isinstance(status_obj, list) else []
+                    has_execution_error = (
+                        status_str == "error"
+                        or (isinstance(status_obj, dict) and status_obj.get("completed") is False)
+                        or comfyui_client._has_status_message(messages, "execution_error")
+                    )
+
+                    if "error" in prompt_data or has_execution_error:
+                        node_err_data = comfyui_client._extract_node_error_dict(prompt_data) if hasattr(comfyui_client, "_extract_node_error_dict") else None
+                        raw_error = prompt_data.get("error") or comfyui_client._extract_node_errors(prompt_data)
+                        diagnosed = error_diagnoser.diagnose(
+                            error=raw_error,
+                            node_error_data=node_err_data
+                        )
                         return {
+                            **diagnosed,
                             "status": "error",
                             "prompt_id": prompt_id,
-                            "error": error_info,
                             "history": prompt_data,
-                            "message": f"Job failed with error: {error_info}"
+                            "message": f"Job failed with error: {diagnosed.get('error', raw_error)}"
                         }
                     
                     # Check if completed with outputs
