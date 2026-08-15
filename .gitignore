@@ -2,3 +2,7 @@
 __pycache__/
 *.pyc
 archive/
+
+# Runtime logs
+mcp_server.err
+mcp_server.log

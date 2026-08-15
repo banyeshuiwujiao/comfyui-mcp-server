@@ -109,7 +109,7 @@
   },
   "57:3": {
     "inputs": {
-      "seed": 0,
+      "seed": "PARAM_INT_SEED",
       "steps": 8,
       "cfg": 1,
       "sampler_name": "res_multistep",

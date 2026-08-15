@@ -26,18 +26,30 @@ logger = logging.getLogger("MCP_Server")
 
 GPU_GUARD_ENABLED = os.getenv("COMFY_MCP_GPU_GUARD", "1") not in ("0", "false", "False", "")
 GPU_HIGH_UTIL = float(os.getenv("COMFY_MCP_GPU_HIGH_UTIL", "92"))      # percent
-GPU_GUARD_WINDOW = int(os.getenv("COMFY_MCP_GPU_GUARD_WINDOW", "3"))   # consecutive samples
+GPU_GUARD_WINDOW = int(os.getenv("COMFY_MCP_GPU_GUARD_WINDOW", "3"))   # consecutive high samples
 GPU_SAMPLE_TIMEOUT = float(os.getenv("COMFY_MCP_GPU_SAMPLE_TIMEOUT", "3.0"))
+# A high sample is only "fresh" for this long. Stale (e.g. timeout-window old)
+# samples no longer count toward sustained saturation, so the guard cannot
+# get wedged in a permanently-refusing state after a long decode.
+GPU_SAMPLE_TTL = float(os.getenv("COMFY_MCP_GPU_SAMPLE_TTL", "30.0"))
 
 
 class GpuGuard:
-    """Tracks recent GPU utilization samples and advises on admission."""
+    """Tracks recent GPU utilization samples and advises on admission.
+
+    The admission decision is based on how many *fresh* consecutive high-util
+    samples we have seen. A sample older than ``GPU_SAMPLE_TTL`` seconds is
+    dropped, which bounds the refusal window: after a heavy job finishes (or
+    the caller times out), the high-reading decays on its own even if
+    ``note_completed`` is never called. This prevents the "stuck refusing"
+    deadlock reported when ``run_custom_workflow`` returns a job handle on
+    timeout without invoking ``note_completed``.
+    """
 
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
         self._lock = threading.Lock()
-        self._recent_high = 0  # consecutive high-utilization samples
-        self._last_sample_ts = 0.0
+        self._high_samples: list[float] = []  # timestamps of fresh high-util samples
 
     def _sample_gpu_util(self) -> float | None:
         """Return max GPU VRAM-utilization percent across devices, or None on error.
@@ -100,12 +112,16 @@ class GpuGuard:
         pending = self._pending_count()
 
         with self._lock:
-            if gpu_util is not None and gpu_util >= GPU_HIGH_UTIL and pending > 0:
-                self._recent_high += 1
-            else:
-                self._recent_high = 0
+            now = time.monotonic()
+            # Drop samples older than the TTL so a single long decode can't
+            # wedge the guard into a permanently-refusing state.
+            self._high_samples = [t for t in self._high_samples if now - t <= GPU_SAMPLE_TTL]
 
-            saturated = self._recent_high >= GPU_GUARD_WINDOW
+            if gpu_util is not None and gpu_util >= GPU_HIGH_UTIL and pending > 0:
+                self._high_samples.append(now)
+            # else: leave the list as-is (fresh samples keep counting)
+
+            saturated = len(self._high_samples) >= GPU_GUARD_WINDOW
 
             if saturated:
                 return {
@@ -129,7 +145,10 @@ class GpuGuard:
             return {"allowed": True, "reason": note, "gpu_util": gpu_util, "pending": pending}
 
     def note_completed(self) -> None:
-        """Call after a job finishes to decay the high-util counter opportunistically."""
+        """Call after a job finishes to opportunistically drop the oldest
+        high-util sample (mild decay). Not required for correctness — the TTL
+        in ``check_admission`` already bounds the refusal window.
+        """
         with self._lock:
-            if self._recent_high > 0:
-                self._recent_high -= 1
+            if self._high_samples:
+                self._high_samples.pop(0)

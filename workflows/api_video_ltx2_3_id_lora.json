@@ -34,7 +34,7 @@
   },
   "340:285": {
     "inputs": {
-      "noise_seed": 42
+      "noise_seed": "PARAM_INT_SEED"
     },
     "class_type": "RandomNoise",
     "_meta": {
@@ -43,7 +43,7 @@
   },
   "340:286": {
     "inputs": {
-      "noise_seed": 597157848195547
+      "noise_seed": "PARAM_INT_SEED"
     },
     "class_type": "RandomNoise",
     "_meta": {

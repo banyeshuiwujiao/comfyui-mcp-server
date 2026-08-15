@@ -104,7 +104,7 @@
   },
   "87:69": {
     "inputs": {
-      "seed": 824287194145573,
+      "seed": "PARAM_INT_SEED",
       "steps": 5,
       "cfg": 1,
       "sampler_name": "dpmpp_2m_sde",

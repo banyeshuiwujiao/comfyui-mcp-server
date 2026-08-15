@@ -246,6 +246,12 @@ class WorkflowManager:
                             if node_id in workflow and "inputs" in workflow[node_id]:
                                 workflow[node_id]["inputs"][input_name] = default_value
 
+        # Final safety pass: any input still holding a raw PARAM_ placeholder
+        # string must be filled, otherwise ComfyUI would reject the prompt.
+        # The only self-generating parameter is `seed` (random when omitted);
+        # other leftovers fall back to a zero/empty default and are reported.
+        self._fill_remaining_placeholders(workflow, parameters)
+
         # Store the report on the workflow dict so callers can access it
         # (using a private key that won't conflict with node IDs which are numeric strings)
         workflow["__override_report__"] = {
@@ -254,6 +260,46 @@ class WorkflowManager:
         }
 
         return workflow
+
+    def _fill_remaining_placeholders(self, workflow: Dict[str, Any], parameters) -> None:
+        """Replace any input still holding a raw PARAM_ placeholder string.
+
+        After overrides/defaults are applied, a placeholder may remain when an
+        optional parameter was neither overridden nor given a default. We must
+        not submit a literal "PARAM_INT_SEED" to ComfyUI. The `seed` parameter
+        is randomized; everything else falls back to a zero/empty value and is
+        recorded in `overrides_dropped` so the caller can surface it.
+        """
+        report = workflow.get("__override_report__")
+        for node_id, node in workflow.items():
+            if not isinstance(node, dict):
+                continue
+            inputs = node.get("inputs", {})
+            if not isinstance(inputs, dict):
+                continue
+            for input_name, value in inputs.items():
+                if not isinstance(value, str) or not value.startswith(PLACEHOLDER_PREFIX):
+                    continue
+                param_name, annotation, _ = self._parse_placeholder(value) or (None, None, None)
+                if param_name is None:
+                    # Unrecognized placeholder form: clear it to empty to avoid submit errors.
+                    inputs[input_name] = "" if annotation is str else 0
+                    continue
+                if param_name == "seed" and annotation is int:
+                    inputs[input_name] = random.randint(0, 2**32 - 1)
+                elif annotation is int:
+                    inputs[input_name] = 0
+                elif annotation is float:
+                    inputs[input_name] = 0.0
+                elif annotation is bool:
+                    inputs[input_name] = False
+                else:
+                    inputs[input_name] = ""
+                if report is not None:
+                    report.setdefault("overrides_dropped", {})[param_name] = (
+                        f"No value provided for '{param_name}'; used fallback "
+                        f"{inputs[input_name]!r} to avoid submitting a raw placeholder."
+                    )
 
     def _refresh_definition_if_stale(self, definition: WorkflowToolDefinition) -> None:
         """Reload a tool definition's template from disk if the file has been modified."""
@@ -366,7 +412,12 @@ class WorkflowManager:
             coerced_value = self._coerce_value(raw_value, param.annotation)
             for node_id, input_name in param.bindings:
                 workflow[node_id]["inputs"][input_name] = coerced_value
-        
+
+        # Safety: never submit a raw PARAM_ placeholder (e.g. an optional param
+        # the caller omitted and that had no default). Randomizes seed, zero/empty
+        # for the rest.
+        self._fill_remaining_placeholders(workflow, definition.parameters)
+
         return workflow
 
     def _extract_parameters(self, workflow: Dict[str, Any]):

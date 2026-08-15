@@ -117,7 +117,7 @@
   },
   "70:44": {
     "inputs": {
-      "seed": 729703840979498,
+      "seed": "PARAM_INT_SEED",
       "steps": 8,
       "cfg": 1,
       "sampler_name": "res_multistep",
