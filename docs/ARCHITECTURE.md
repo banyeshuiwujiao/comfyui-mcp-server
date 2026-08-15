@@ -120,31 +120,49 @@ The server delegates execution to ComfyUI rather than reimplementing:
 
 ### AssetRegistry
 
-**Purpose**: Track generated assets for viewing and management.
+**Purpose**: Track generated assets with dual-layer SQLite persistence and lineage association.
 
 **Features:**
-- UUID-based asset IDs for external reference
-- Stable identity using `(filename, subfolder, type)` tuple (robust to URL changes)
-- TTL-based expiration (default 24 hours)
-- O(1) lookups via dual-index structure (`_assets` and `_asset_key_to_id`)
-- Full provenance storage (`comfy_history`, `submitted_workflow`)
-- Session tracking for conversation isolation
-- Automatic cleanup of expired assets
+- **Dual-Layer Architecture**: L1 in-memory fast cache + L2 SQLite persistence (WAL mode)
+- **Survives Server Restarts**: Assets and metadata persist across process lifecycles
+- **Asset Lineage Association**: Tracks `parent_asset_id` and `root_asset_id` across iterative workflows (T2I → Inpaint → Upscale → Video)
+- **Stable Identity**: Uses `(filename, subfolder, type)` tuple (robust to URL/hostname changes)
+- **Full Provenance Storage**: `comfy_history`, `submitted_workflow`, prompts, seed, tags
+- **Lineage Tree Querying**: `get_lineage()` retrieves ancestor chains, direct children, and whole-family graphs
+- **Long-term Search**: `search_assets()` queries prompt keywords, tags, and workflow types across sessions
+- **TTL Expiration**: Optional expiration cleanup (default 24h)
 
 **Key Methods:**
-- `register_asset()`: Register new asset with stable identity, return `AssetRecord`
-- `get_asset()`: Retrieve by ID (checks expiration)
-- `list_assets()`: List assets with optional filtering (workflow_id, session_id)
-- `cleanup_expired()`: Remove expired assets
+- `register_asset()`: Register new asset with stable identity & lineage links, save to SQLite
+- `get_asset()`: Retrieve by ID from memory or SQLite
+- `get_lineage()`: Construct full evolutionary lineage tree
+- `search_assets()`: Full-text and tag search across historical assets
+- `list_assets()`: Query assets with multi-dimensional filters (workflow, session, parent, root)
+- `cleanup_expired()`: Remove expired assets from memory and database
 
-**Stable Identity Design:**
-Assets are identified by `(filename, subfolder, folder_type)` instead of URLs, making the system robust to:
-- Hostname/port/base-url changes
-- Resilient to ComfyUI restarts for already-known output identities
+### ErrorDiagnoser (Self-Healing System)
 
-URLs are computed on-the-fly from the stable identity when needed.
+**Purpose**: Classify execution errors and provide actionable, machine-readable recovery parameters for AI Agents.
 
-**Note:** Stable identity prevents URL/base changes from breaking computed URLs, but does not imply persistence of the asset registry across MCP server restarts.
+**Features:**
+- **CUDA OOM Mitigation**: Automatically downscales resolution (maintains aspect ratio, aligns to 16px/8px multiples), limits video frame count, lowers batch size to 1, clamps sampling steps.
+- **Dimension Alignment**: Aligns non-divisible width/height to 8/16/64 multiples.
+- **Fuzzy Model Matcher**: Uses Levenshtein distance and substring matching to suggest the closest available checkpoints/LoRAs when a requested model is missing.
+- **Parameter Bound Clamping**: Clamps out-of-range parameters (`denoise` 0~1, `cfg` 1~30, `steps` 1~100).
+- **Node Stack Trace Extraction**: Extracts the exact failing node ID, node type, and error detail from ComfyUI history.
+
+### Multimodal AssetProcessor
+
+**Purpose**: Lightweight in-memory perception engine for video and audio assets.
+
+**Features:**
+- **Video Perception**:
+  - `extract_video_keyframes()`: Decodes MP4/WebM/MOV in memory via PyAV / OpenCV to extract evenly spaced keyframes with timestamps.
+  - `create_video_contact_sheet()`: Combines keyframes into a timestamp-badged filmstrip (WebP, ~80KB) for single-turn vision model comprehension.
+  - `create_video_animated_gif()`: Generates lightweight looping preview GIFs.
+- **Audio Perception**:
+  - `analyze_audio_features()`: Measures RMS/Peak loudness (dBFS), estimates tempo/BPM via Hilbert envelope autocorrelation, detects silence intervals, and maps lyrical sections.
+  - `render_waveform_image()`: Generates sleek dark-theme visual waveform images (~5KB WebP).
 
 ### ComfyUIClient
 

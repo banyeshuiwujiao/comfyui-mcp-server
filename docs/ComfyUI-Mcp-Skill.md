@@ -182,9 +182,33 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 - 建议在调用 `run_workflow` 前先调用它，提前暴露错误而非等 ComfyUI 拒绝 prompt。输入图检查依赖 `COMFYUI_INPUT_DIR` 环境变量或 ComfyUI `/view/input` 接口，无法探测时自动跳过该项。
 
 **P2 能力增强（模型清单 / 视频预览 / regenerate）**
-- `list_models` 现在会聚合 `UNETLoader` / `DiffusionLoader` / `CLIPLoader` / `VAELoader` / `LoraLoader` / `CheckpointLoaderSimple` 全部 loader 的模型名（去重），而不再只查 `CheckpointLoaderSimple`。本仓库 Flux2 / MiniMax H3 / Z-Image-Turbo 等均以 `UNETLoader`/`DiffusionLoader` 加载，之前 `list_models` 返回空、导致 `set_defaults` 校验误报"模型不存在"；现已对齐。
-- `view_image` 对视频/音频资产不再硬报错，而是返回结构化 `metadata`（`asset_url` / `mime_type` / 文件名 / 大小），并提示直接以播放器打开 URL。环境无 `ffmpeg`，暂不支持内联抽帧预览。
-- `regenerate(asset_id, param_overrides=...)` 的参数改写逻辑已泛化：提示词可改写任意 `prompt`/`text`/`positive` 输入；`seed` 同时覆盖 `seed` 与 `noise_seed`（兼容 Flux2 / MiniMax H3）；后续可继续扩展 `width`/`height`/`steps`/`cfg` 等数值参数。
+- `list_models` 现在会聚合 `UNETLoader` / `DiffusionLoader` / `CLIPLoader` / `VAELoader` / `LoraLoader` / `CheckpointLoaderSimple` 全部 loader 的模型名（去重）。
+- `regenerate(asset_id, param_overrides=...)` 的参数改写逻辑已泛化：提示词可改写任意 `prompt`/`text`/`positive` 输入；`seed` 同时覆盖 `seed` 与 `noise_seed`（兼容 Flux2 / MiniMax H3）；自动将原资产 ID 记录为 `parent_asset_id` 并维持血缘链路。
+
+### 4.0.3 P0 进阶能力：自愈建议、SQLite 资产血缘、音视频多模态感知
+
+**1. 结构化错误自愈建议（Error Diagnoser & Self-Healing）**
+- 当 ComfyUI 执行失败时，MCP 统一返回结构化诊断字典：
+  - `error_type`：`CUDA_OOM`、`DIMENSION_NOT_DIVISIBLE`、`MODEL_NOT_FOUND`、`PARAM_OUT_OF_BOUNDS`、`NODE_EXECUTION_ERROR`
+  - `actionable_recommendations`：人类与 Agent 友好的清晰排障建议
+  - `suggested_params`：可以直接解构并自动重试的修正参数（例如自动降级 75% 分辨率、步数钳位到 20、最相近的模型名称）
+- **Agent 最佳实践**：如果捕获到含有 `suggested_params` 的错误响应，可自动带入 `suggested_params` 重新提交，无需人工介入！
+
+**2. SQLite 资产持久化与血缘关联（Asset Lineage Graph）**
+- 资产记录写入 SQLite（默认 `data/assets.db`），跨服务重启永久保留。
+- **`get_asset_lineage(asset_id)`**：一键查询母本祖先链（`ancestors`）、直接衍生子资产（`children`）与全家族树（`family_tree`）。
+- **`search_assets(query, tag, workflow_id, limit)`**：支持跨会话的长记忆按 Prompt 关键词或 Tag 检索历史资产。
+
+**3. 视频多关键帧胶片图与动图感知（Video Summarizer）**
+- **`view_video_preview(asset_id, mode="strip"|"gif"|"metadata", num_frames=4)`**：
+  - `mode="strip"`：在内存中抽取 $N$ 个时间轴关键帧，自动拼接为带时间戳徽章（`0.0s`, `1.5s`, `3.0s`...）的 WebP 胶片图，Vision Agent 单次 Tool Call 即可看全片。
+  - `mode="gif"`：生成轻量动图循环。
+- `view_image` 对视频资产自动降级为胶片预览。
+
+**4. 音频特征分析与波形感知（Audio Summarizer）**
+- **`analyze_audio(asset_id)`**：返回精准的 BPM 节奏测速、RMS/Peak 响度（dBFS）、静音段区间（`silent_segments`）与歌词结构（`lyrics_sections`）时间对齐。
+- **`view_audio_preview(asset_id, mode="waveform"|"analysis")`**：返回深色科技感波形图或特征诊断。
+- `view_image` 对音频资产自动渲染波形图。
 
 ### 4.1 各视频工作流节点要点
 

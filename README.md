@@ -158,23 +158,35 @@ No migration is required unless you want the new capabilities.
 
 - **`generate_image`**: Generate images (requires `prompt`)
 - **`generate_song`**: Generate audio (requires `tags` and `lyrics`)
-- **`regenerate`**: Regenerate an existing asset with optional parameter overrides (requires `asset_id`)
+- **`regenerate`**: Regenerate an existing asset with optional parameter overrides and automatic lineage tracking (requires `asset_id`)
+- **`run_workflow`**: Run any registered workflow with custom parameter overrides
 
-### Viewing Tools
+### Viewing & Multimodal Perception Tools
 
-- **`view_image`**: View generated images inline (images only, not audio/video)
+- **`view_image`**: View generated images inline (supports image thumbnails, video contact sheets, and audio waveforms)
+- **`view_video_preview`**: View video assets as a multi-keyframe filmstrip (`mode="strip"`) or animated GIF loop (`mode="gif"`)
+- **`view_audio_preview`**: View audio assets as a visual waveform diagram (`mode="waveform"`) or feature analysis (`mode="analysis"`)
+- **`analyze_audio`**: Comprehensive audio diagnostic tool (BPM estimation, RMS/Peak dBFS, silence detection, lyrics alignment)
 
-### Job Management Tools
+### Asset Management & Lineage Tools
 
-- **`get_queue_status`**: Check ComfyUI queue state (running/pending jobs) - provides async awareness
-- **`get_job`**: Poll job completion status by prompt_id - check if a job has finished
-- **`list_assets`**: Browse recently generated assets - enables AI memory and iteration
-- **`get_asset_metadata`**: Get full provenance and parameters for an asset - includes workflow history
+- **`get_asset_lineage`**: Query the ancestry chain and derived children (family tree) of an asset
+- **`search_assets`**: Search historical assets across sessions by prompt keyword, tag, or workflow
+- **`list_assets`**: Browse recently generated assets with multi-dimensional filtering
+- **`get_asset_metadata`**: Get full provenance, parameters, and ComfyUI history for an asset
+
+### Job & Queue Management Tools
+
+- **`get_queue_status`**: Check ComfyUI queue state (running/pending jobs)
+- **`get_job`**: Poll job completion status by prompt_id
 - **`cancel_job`**: Cancel a queued or running job
+- **`interrupt`**: Abort currently executing prompt in ComfyUI
+- **`clear_queue`**: Clear all pending jobs in ComfyUI queue
 
-### Configuration Tools
+### Configuration & Diagnostics Tools
 
-- **`list_models`**: List available ComfyUI models
+- **`validate_workflow`**: Dry-run validation of workflow parameters, missing models, and input images before submission
+- **`list_models`**: List available ComfyUI models across all loader types
 - **`get_defaults`**: Get current default values
 - **`set_defaults`**: Set default values (with optional persistence)
 

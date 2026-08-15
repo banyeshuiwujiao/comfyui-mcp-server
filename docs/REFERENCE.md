@@ -177,21 +177,9 @@ view_image(
 ```
 
 **Supported Types:**
-- Images only: PNG, JPEG, WebP, GIF
-- Audio/video assets return error: use `asset_url` directly
-
-**Error Responses:**
-```json
-{
-  "error": "Asset not found or expired"
-}
-```
-
-```json
-{
-  "error": "Asset type 'audio/mpeg' not supported for inline viewing. Supported types: image/png, image/jpeg, image/webp, image/gif"
-}
-```
+- **Images** (PNG, JPEG, WebP, GIF): Resized thumbnail preview.
+- **Videos** (MP4, WebM, MOV): Multi-keyframe filmstrip contact sheet with timestamps.
+- **Audios** (MP3, WAV, FLAC, OGG, M4A): Visual waveform diagram.
 
 **Examples:**
 
@@ -206,6 +194,85 @@ view_image(
 **User:** "What are the dimensions of that last image I generated?"
 
 **Agent:** *Calls `view_image(asset_id="...", mode="metadata")` → returns width, height, size, etc.*
+
+### view_video_preview
+
+View a generated video asset inline via keyframe contact sheet strip, animated GIF, or metadata.
+
+**Signature:**
+```python
+view_video_preview(
+    asset_id: str,
+    mode: str = "strip",
+    num_frames: int = 4,
+    max_dim: int | None = None
+) -> FastMCPImage | dict
+```
+
+**Parameters:**
+- `asset_id` (str): Video Asset ID returned from generation tools
+- `mode` (str): Preview mode - `"strip"` (default, multi-keyframe filmstrip with timestamps), `"gif"` (animated GIF loop), or `"metadata"` (duration/fps/dimensions)
+- `num_frames` (int): Number of keyframes to extract for contact sheet. Default: 4
+- `max_dim` (int, optional): Maximum dimension in pixels (default: 1024 for strip, 256 for GIF)
+
+**Returns:**
+- In `"strip"` mode: `FastMCPImage` object (WebP format) showing keyframes across time
+- In `"gif"` mode: `FastMCPImage` object (GIF format) showing animated loop
+- In `"metadata"` mode: Dict with duration, fps, total_frames, width, height, has_audio
+
+---
+
+### view_audio_preview
+
+View a generated audio asset inline via visual waveform diagram or feature analysis.
+
+**Signature:**
+```python
+view_audio_preview(
+    asset_id: str,
+    mode: str = "waveform",
+    max_dim: int | None = None
+) -> FastMCPImage | dict
+```
+
+**Parameters:**
+- `asset_id` (str): Audio Asset ID returned from generation tools
+- `mode` (str): Preview mode - `"waveform"` (default visual diagram) or `"analysis"` (detailed features)
+- `max_dim` (int, optional): Maximum width in pixels for waveform image. Default: 512
+
+---
+
+### analyze_audio
+
+Analyze audio features including tempo (BPM), loudness (RMS/Peak dBFS), silent intervals, and lyrics alignment.
+
+**Signature:**
+```python
+analyze_audio(asset_id: str) -> dict
+```
+
+**Parameters:**
+- `asset_id` (str): Audio Asset ID
+
+**Returns:**
+```json
+{
+  "asset_id": "uuid-string",
+  "duration_sec": 45.2,
+  "sample_rate": 44100,
+  "estimated_bpm": 120.0,
+  "rms_dbfs": -14.5,
+  "peak_dbfs": -0.8,
+  "silent_segments": [
+    { "start_sec": 0.0, "end_sec": 0.5, "duration_sec": 0.5 }
+  ],
+  "lyrics_sections": [
+    { "section": "Intro", "start_sec": 0.0, "end_sec": 10.0, "text": "Soft synthesizer" },
+    { "section": "Verse 1", "start_sec": 10.0, "end_sec": 25.0, "text": "Walking in the rain" }
+  ],
+  "waveform_summary": [0.12, 0.45, 0.88, 0.65]
+}
+```
 
 ## Job Management Tools
 
@@ -446,11 +513,90 @@ get_asset_metadata(asset_id: str) -> dict
 
 **Examples:**
 
-**User:** "What parameters were used to generate that last image?"
+### get_asset_lineage
 
-**Agent:** *Calls `get_asset_metadata(asset_id="...")` → retrieves and reports workflow parameters, dimensions, etc.*
+Get complete ancestry lineage and derived children for an asset across generations (e.g. Text-to-Image → Inpaint → Upscale → Image-to-Video).
+
+**Signature:**
+```python
+get_asset_lineage(asset_id: str) -> dict
+```
+
+**Parameters:**
+- `asset_id` (str): Asset ID to inspect
+
+**Returns:**
+```json
+{
+  "asset_id": "child-asset-uuid",
+  "root_asset_id": "root-asset-uuid",
+  "parent_asset_id": "parent-asset-uuid",
+  "generation_type": "inpaint",
+  "workflow_id": "generate_image",
+  "created_at": "2024-01-01T12:00:00",
+  "ancestors": [
+    {
+      "asset_id": "parent-asset-uuid",
+      "generation_type": "t2i",
+      "workflow_id": "generate_image",
+      "filename": "root.png",
+      "asset_url": "http://localhost:8188/view?filename=root.png"
+    }
+  ],
+  "ancestor_count": 1,
+  "children": [],
+  "child_count": 0,
+  "family_tree_count": 3,
+  "family_tree": [...]
+}
+```
 
 ---
+
+### search_assets
+
+Search historically generated assets across sessions by keyword in prompt, filename, tag, or workflow ID.
+
+**Signature:**
+```python
+search_assets(
+    query: str | None = None,
+    tag: str | None = None,
+    workflow_id: str | None = None,
+    session_id: str | None = None,
+    limit: int = 10
+) -> dict
+```
+
+**Parameters:**
+- `query` (str, optional): Keyword query matching prompt, filename, or metadata
+- `tag` (str, optional): Tag filter (e.g., `"cyberpunk"`, `"character"`)
+- `workflow_id` (str, optional): Workflow ID filter
+- `session_id` (str, optional): Conversation session ID
+- `limit` (int): Maximum records to return. Default: 10
+
+**Returns:**
+```json
+{
+  "assets": [
+    {
+      "asset_id": "uuid-string",
+      "asset_url": "http://localhost:8188/view?filename=...",
+      "filename": "mecha_warrior.png",
+      "workflow_id": "generate_image",
+      "generation_type": "t2i",
+      "parent_asset_id": null,
+      "root_asset_id": "uuid-string",
+      "prompt": "futuristic mecha warrior holding glowing sword",
+      "tags": ["mecha", "scifi"],
+      "created_at": "2024-01-01T12:00:00"
+    }
+  ],
+  "count": 1,
+  "query": "mecha",
+  "tag": null
+}
+```
 
 **User:** "I want to regenerate that image but with different settings - what were the original settings?"
 
@@ -1310,15 +1456,40 @@ All generation tools (`generate_image`, `generate_song`, `regenerate`, `run_work
 
 ## Error Handling
 
-### Error Response Format
+### Structured Error Diagnosis and Self-Healing Schema
 
-All tools return errors in consistent format:
+All workflow execution and generation tools return a rich, structured error diagnosis object when ComfyUI encounters an error or resource limit. This provides AI Agents with concrete, machine-readable parameter fixes to automatically self-heal and retry:
 
 ```json
 {
-  "error": "Error message describing what went wrong"
+  "error": "ComfyUI execution failed on node #3 (KSampler): CUDA out of memory. Tried to allocate 4.20 GiB",
+  "error_type": "CUDA_OOM",
+  "failing_node_id": "3",
+  "failing_node_type": "KSampler",
+  "actionable_recommendations": [
+    "Reduce output resolution (downscale width/height to 75% or 50%)",
+    "Reduce frame count (video workflows) or batch size to 1",
+    "Lower steps to 20 or switch to a lighter model"
+  ],
+  "suggested_params": {
+    "width": 768,
+    "height": 768,
+    "steps": 20,
+    "batch_size": 1
+  }
 }
 ```
+
+### Error Types Classified:
+- `CUDA_OOM`: Out of GPU memory (returns automatic downscaled resolution & steps)
+- `DIMENSION_NOT_DIVISIBLE`: Latent dimensions must be divisible by 8/16/64 (returns auto-aligned dimensions)
+- `MODEL_NOT_FOUND`: Checkpoint/LoRA not found (fuzzy matching returns closest available model names)
+- `PARAM_OUT_OF_BOUNDS`: Numerical parameter outside safe limits (returns clamped values)
+- `NODE_EXECUTION_ERROR`: ComfyUI node exception (extracts failing node ID and stack trace)
+- `GPU_SATURATED`: GPU queue saturated / unresponsive
+- `TIMEOUT`: Execution exceeded timeout limit
+
+### Standard Error Responses
 
 ### Common Errors
 
