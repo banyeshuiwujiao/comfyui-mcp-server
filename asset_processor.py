@@ -973,4 +973,249 @@ def render_waveform_image(
     return out.getvalue()
 
 
+# ---------------------------------------------------------------------------
+# Game / Web Asset Post-Processing Engine
+# ---------------------------------------------------------------------------
+
+def remove_image_background(
+    image_bytes: bytes,
+    mode: str = "auto",
+    bgcolor: Optional[str] = None,
+    tolerance: int = 32,
+    feather: int = 2
+) -> bytes:
+    """Remove background from image bytes and return transparent RGBA PNG bytes.
+
+    Supports:
+    - Color keying (mode="color" or auto-detected solid background)
+    - GrabCut foreground extraction (mode="grabcut")
+    - Auto-detection (mode="auto", samples corner pixels for uniform color)
+    """
+    if not PIL_AVAILABLE or not NUMPY_AVAILABLE:
+        raise ImportError("Pillow and NumPy are required for background removal")
+
+    with Image.open(BytesIO(image_bytes)) as src_img:
+        img_rgb = src_img.convert("RGB")
+        w, h = img_rgb.size
+        img_np = np.array(img_rgb, dtype=np.uint8)
+
+    # 1. Parse target background color if specified
+    target_bg_rgb: Optional[np.ndarray] = None
+    if bgcolor:
+        clean_bg = bgcolor.strip().lstrip("#").lower()
+        if clean_bg in ("white", "fff", "ffffff"):
+            target_bg_rgb = np.array([255, 255, 255], dtype=np.float32)
+        elif clean_bg in ("black", "000", "000000"):
+            target_bg_rgb = np.array([0, 0, 0], dtype=np.float32)
+        elif clean_bg in ("green", "greenscreen"):
+            target_bg_rgb = np.array([0, 255, 0], dtype=np.float32)
+        elif clean_bg in ("blue", "bluescreen"):
+            target_bg_rgb = np.array([0, 0, 255], dtype=np.float32)
+        elif len(clean_bg) == 6:
+            try:
+                target_bg_rgb = np.array([
+                    int(clean_bg[0:2], 16),
+                    int(clean_bg[2:4], 16),
+                    int(clean_bg[4:6], 16)
+                ], dtype=np.float32)
+            except ValueError:
+                pass
+
+    # 2. Auto-detect if corner background is uniform
+    is_solid_corner = False
+    corner_size = max(2, min(w, h) // 20)
+    corners = [
+        img_np[0:corner_size, 0:corner_size],
+        img_np[0:corner_size, w - corner_size : w],
+        img_np[h - corner_size : h, 0:corner_size],
+        img_np[h - corner_size : h, w - corner_size : w]
+    ]
+    corner_means = [c.reshape(-1, 3).mean(axis=0) for c in corners]
+    corner_stds = [c.reshape(-1, 3).std(axis=0).mean() for c in corners]
+
+    avg_std = float(np.mean(corner_stds))
+    overall_mean = np.mean(corner_means, axis=0)
+    max_corner_diff = max(float(np.linalg.norm(m - overall_mean)) for m in corner_means)
+
+    if target_bg_rgb is None and (avg_std < 18.0 and max_corner_diff < 25.0):
+        target_bg_rgb = overall_mean
+        is_solid_corner = True
+
+    # 3. Perform segmentation
+    alpha_mask = np.ones((h, w), dtype=np.float32) * 255.0
+
+    if mode == "color" or (mode == "auto" and (target_bg_rgb is not None or is_solid_corner)):
+        bg_val = target_bg_rgb if target_bg_rgb is not None else np.array([255.0, 255.0, 255.0])
+        # Euclidean color distance
+        diff = np.linalg.norm(img_np.astype(np.float32) - bg_val, axis=2)
+        
+        # Soft threshold ramp
+        feather_band = max(4, feather * 4)
+        t_low = float(tolerance)
+        t_high = float(tolerance + feather_band)
+        
+        # Map distance to alpha: < t_low -> 0, > t_high -> 255
+        alpha_mask = np.clip((diff - t_low) / (t_high - t_low), 0.0, 1.0) * 255.0
+
+    elif (mode == "grabcut" or mode == "auto") and CV2_AVAILABLE:
+        try:
+            margin_x = max(1, w // 25)
+            margin_y = max(1, h // 25)
+            rect = (margin_x, margin_y, w - 2 * margin_x, h - 2 * margin_y)
+            
+            mask = np.zeros((h, w), dtype=np.uint8)
+            bgd_model = np.zeros((1, 65), dtype=np.float64)
+            fgd_model = np.zeros((1, 65), dtype=np.float64)
+            
+            # Run GrabCut (2 iterations for speed)
+            cv2.grabCut(img_np, mask, rect, bgd_model, fgd_model, 2, cv2.GC_INIT_WITH_RECT)
+            
+            # 0 and 2 are background; 1 and 3 are foreground
+            fg_mask = np.where((mask == 2) | (mask == 0), 0.0, 255.0).astype(np.float32)
+            
+            if feather > 0:
+                ksize = feather * 2 + 1
+                fg_mask = cv2.GaussianBlur(fg_mask, (ksize, ksize), 0)
+                
+            alpha_mask = fg_mask
+        except Exception as e:
+            logger.warning(f"GrabCut failed, falling back to thresholding: {e}")
+            diff = np.linalg.norm(img_np.astype(np.float32) - overall_mean, axis=2)
+            alpha_mask = np.where(diff < tolerance, 0.0, 255.0).astype(np.float32)
+    else:
+        # Fallback simple corner-based thresholding
+        diff = np.linalg.norm(img_np.astype(np.float32) - overall_mean, axis=2)
+        alpha_mask = np.where(diff < tolerance, 0.0, 255.0).astype(np.float32)
+
+    # 4. Smooth mask edge if CV2 available
+    if CV2_AVAILABLE and feather > 0:
+        k = feather * 2 + 1
+        alpha_mask = cv2.GaussianBlur(alpha_mask, (k, k), 0)
+
+    alpha_uint8 = np.clip(alpha_mask, 0, 255).astype(np.uint8)
+    rgba_np = np.dstack([img_np, alpha_uint8])
+
+    out_img = Image.fromarray(rgba_np, mode="RGBA")
+    out_buf = BytesIO()
+    out_img.save(out_buf, format="PNG")
+    return out_buf.getvalue()
+
+
+def build_sprite_sheet(
+    frames: List[Any],  # List of PIL Image or bytes
+    columns: Optional[int] = None,
+    frame_width: Optional[int] = None,
+    frame_height: Optional[int] = None,
+    padding: int = 2,
+    out_format: str = "PNG"
+) -> Tuple[bytes, Dict[str, Any]]:
+    """Pack an animation sequence into a master Atlas Sprite Sheet with texture coordinates.
+
+    Args:
+        frames: List of PIL Images or image bytes
+        columns: Grid column count (auto-computed if None)
+        frame_width: Target scaled frame width in pixels
+        frame_height: Target scaled frame height in pixels
+        padding: Pixel padding between sprite cells
+        out_format: Output format ("PNG" or "WEBP")
+
+    Returns:
+        Tuple of (atlas_image_bytes, texture_metadata_dict)
+    """
+    if not PIL_AVAILABLE:
+        raise ImportError("Pillow is required for sprite sheet building")
+
+    if not frames:
+        raise ValueError("Cannot build sprite sheet with empty frames list")
+
+    # Load and standardize frames
+    pil_frames: List[Image.Image] = []
+    for f in frames:
+        if isinstance(f, bytes):
+            pil_frames.append(Image.open(BytesIO(f)).convert("RGBA"))
+        elif isinstance(f, Image.Image):
+            pil_frames.append(f.convert("RGBA"))
+        else:
+            raise TypeError(f"Unsupported frame type: {type(f)}")
+
+    num_frames = len(pil_frames)
+
+    # Determine frame dimensions
+    first_w, first_h = pil_frames[0].size
+    fw = frame_width if frame_width is not None else first_w
+    fh = frame_height if frame_height is not None else first_h
+
+    # Resize frames if requested or mismatched
+    resized_frames = []
+    for frame in pil_frames:
+        if frame.size != (fw, fh):
+            resized_frames.append(frame.resize((fw, fh), Image.Resampling.LANCZOS))
+        else:
+            resized_frames.append(frame)
+
+    # Calculate grid layout
+    if columns is not None and columns > 0:
+        cols = columns
+    else:
+        import math
+        cols = math.ceil(math.sqrt(num_frames))
+
+    rows = (num_frames + cols - 1) // cols
+
+    atlas_w = padding + cols * (fw + padding)
+    atlas_h = padding + rows * (fh + padding)
+
+    atlas_img = Image.new("RGBA", (atlas_w, atlas_h), (0, 0, 0, 0))
+
+    frames_meta: List[Dict[str, Any]] = []
+    frames_dict: Dict[str, Any] = {}
+
+    for idx, frame in enumerate(resized_frames):
+        r = idx // cols
+        c = idx % cols
+        x = padding + c * (fw + padding)
+        y = padding + r * (fh + padding)
+
+        atlas_img.paste(frame, (x, y))
+
+        fname = f"frame_{idx:03d}.png"
+        frame_entry = {
+            "frame": {"x": x, "y": y, "w": fw, "h": fh},
+            "rotated": False,
+            "trimmed": False,
+            "spriteSourceSize": {"x": 0, "y": 0, "w": fw, "h": fh},
+            "sourceSize": {"w": fw, "h": fh},
+            "index": idx
+        }
+        frames_meta.append({"filename": fname, **frame_entry})
+        frames_dict[fname] = frame_entry
+
+    metadata = {
+        "frames": frames_dict,
+        "frame_list": frames_meta,
+        "meta": {
+            "app": "ComfyUI MCP Server Asset Pipeline",
+            "version": "1.0",
+            "format": "RGBA8888",
+            "size": {"w": atlas_w, "h": atlas_h},
+            "scale": "1",
+            "frame_count": num_frames,
+            "columns": cols,
+            "rows": rows,
+            "frame_width": fw,
+            "frame_height": fh,
+            "padding": padding
+        }
+    }
+
+    out_buf = BytesIO()
+    save_fmt = out_format.upper()
+    if save_fmt not in ("PNG", "WEBP"):
+        save_fmt = "PNG"
+    atlas_img.save(out_buf, format=save_fmt)
+
+    return out_buf.getvalue(), metadata
+
+
+
 

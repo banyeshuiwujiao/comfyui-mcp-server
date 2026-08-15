@@ -28,6 +28,7 @@ from tools.workflow import register_workflow_tools
 from tools.mcp_resources import register_mcp_resources
 from managers.character_vault import CharacterVault
 from tools.character import register_character_tools
+from tools.pipeline import register_pipeline_tools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -214,6 +215,9 @@ register_mcp_resources(mcp, comfyui_client, asset_registry, workflow_manager, gp
 
 # Register character consistency vault tools
 register_character_tools(mcp, character_vault)
+
+# Register game/web asset pipeline tools (remove_background & generate_sprite_sheet)
+register_pipeline_tools(mcp, asset_registry, comfyui_client)
 
 if __name__ == "__main__":
     # Check if running as MCP command (stdio) or standalone (streamable-http)
