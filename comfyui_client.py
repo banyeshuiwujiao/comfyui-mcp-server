@@ -55,12 +55,27 @@ class ComfyUIClient:
             logger.warning(f"Error fetching models: {e}")
             return []
 
-    def run_custom_workflow(self, workflow: Dict[str, Any], preferred_output_keys: Sequence[str] | None = None, max_attempts: int = 30):
+    def run_custom_workflow(self, workflow: Dict[str, Any], preferred_output_keys: Sequence[str] | None = None, max_attempts: int = 180, poll_interval: float = 2.0):
+        """Run a ComfyUI workflow and block until completion (or timeout).
+
+        Args:
+            workflow: The workflow prompt dict.
+            preferred_output_keys: Ordered keys to look for in node outputs.
+            max_attempts: Max number of poll iterations before giving up and
+                returning a job handle (default 180 * 2s ≈ 6 min).
+            poll_interval: Seconds between /history polls.
+
+        Returns:
+            Dict. On success includes 'asset_url', 'filename', 'all_assets'
+            (list of every matched output across all nodes/branches), and
+            'asset_metadata'. If still running after timeout, returns a
+            job handle with status="running".
+        """
         if preferred_output_keys is None:
-            preferred_output_keys = ("images", "image", "gifs", "gif", "audio", "audios", "files")
+            preferred_output_keys = ("images", "image", "gifs", "gif", "audio", "audios", "files", "videos", "video")
 
         prompt_id = self._queue_workflow(workflow)
-        outputs = self._wait_for_prompt(prompt_id, max_attempts=max_attempts)
+        outputs = self._wait_for_prompt(prompt_id, max_attempts=max_attempts, poll_interval=poll_interval)
 
         # If outputs is None, the workflow is still running (timeout).
         # Return a job handle instead of raising an error.
@@ -69,18 +84,27 @@ class ComfyUIClient:
                 "status": "running",
                 "prompt_id": prompt_id,
                 "message": (
-                    f"Workflow still running after {max_attempts}s. "
-                    f"Use get_job(prompt_id='{prompt_id}') to poll for completion."
+                    f"Workflow still running after {max_attempts * poll_interval:.0f}s. "
+                    f"Use get_job(prompt_id='{prompt_id}') to poll for completion, "
+                    f"or interrupt()/clear_queue() to stop it."
                 ),
             }
 
-        # Extract asset info (filename, subfolder, type) - stable identity
-        asset_info = self._extract_first_asset_info(outputs, preferred_output_keys)
+        # Extract all matched assets across every node / branch / preview
+        all_assets = self._extract_all_assets(outputs, preferred_output_keys)
+        if not all_assets:
+            raise Exception(
+                f"No outputs matched preferred keys: {preferred_output_keys}. "
+                f"Available outputs: {json.dumps({k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in outputs.items()}, indent=2)}"
+            )
+
+        # Primary asset = first matched (keeps backward-compatible single-url response)
+        asset_info = all_assets[0]
         asset_url = asset_info["asset_url"]
-        
+
         # Extract asset metadata (pass workflow to extract dimensions from it)
         asset_metadata = self._get_asset_metadata(asset_url, outputs, preferred_output_keys, workflow)
-        
+
         # Get full history snapshot for this prompt
         try:
             history = self.get_history(prompt_id)
@@ -88,7 +112,7 @@ class ComfyUIClient:
         except Exception as e:
             logger.warning(f"Failed to fetch history snapshot for {prompt_id}: {e}")
             comfy_history = None
-        
+
         return {
             "asset_url": asset_url,
             "filename": asset_info["filename"],
@@ -98,7 +122,8 @@ class ComfyUIClient:
             "raw_outputs": outputs,
             "asset_metadata": asset_metadata,
             "comfy_history": comfy_history,
-            "submitted_workflow": workflow
+            "all_assets": all_assets,
+            "submitted_workflow": workflow,
         }
     
     def _get_asset_metadata(self, asset_url: str, outputs: Dict[str, Any], preferred_output_keys: Sequence[str], workflow: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -264,7 +289,7 @@ class ComfyUIClient:
 
         return "; ".join(parts)
 
-    def _wait_for_prompt(self, prompt_id: str, max_attempts: int = 30):
+    def _wait_for_prompt(self, prompt_id: str, max_attempts: int = 180, poll_interval: float = 2.0):
         for attempt in range(max_attempts):
             try:
                 # Try both the specific prompt_id endpoint and the full history endpoint
@@ -272,30 +297,30 @@ class ComfyUIClient:
                 # If that doesn't work, we can also try: f"{self.base_url}/history"
                 if response.status_code != 200:
                     logger.warning("History endpoint returned %s on attempt %s", response.status_code, attempt + 1)
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
                 
                 history = response.json()
                 if not isinstance(history, dict):
                     logger.warning("Invalid history response format on attempt %s", attempt + 1)
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
                 
                 if prompt_id not in history:
                     # Workflow might still be running, wait and retry
                     if attempt < max_attempts - 1:
-                        time.sleep(1)
+                        time.sleep(poll_interval)
                         continue
                     else:
                         # Last attempt - check if there's any history at all
                         logger.warning("Prompt ID not found in history. Available IDs: %s", list(history.keys())[:10])
-                        time.sleep(1)
+                        time.sleep(poll_interval)
                         continue
                 
                 prompt_data = history[prompt_id]
                 if not isinstance(prompt_data, dict):
                     logger.warning("Prompt data is not a dict on attempt %s", attempt + 1)
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
                 
                 # Check for workflow errors (top-level and status-embedded)
@@ -343,7 +368,7 @@ class ComfyUIClient:
                         continue
 
                     logger.warning("Prompt data missing outputs on attempt %s. Full data: %s", attempt + 1, json.dumps(prompt_data, indent=2))
-                    time.sleep(1)
+                    time.sleep(poll_interval)
                     continue
 
                 outputs = prompt_data["outputs"]
@@ -418,19 +443,29 @@ class ComfyUIClient:
             f"Available outputs: {json.dumps({k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in outputs.items()}, indent=2)}"
         )
     
-    def _extract_first_asset_info(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]) -> Dict[str, Any]:
-        """Extract first asset info (filename, subfolder, type) from outputs.
-        
-        Returns dict with 'filename', 'subfolder', 'type', and 'asset_url'.
+    def _extract_all_assets(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]) -> list[Dict[str, Any]]:
+        """Extract every matched asset across all nodes / branches / preview outputs.
+
+        For multi-branch workflows (e.g., Qwen multi-angle edits with several
+        SaveImage nodes), this returns one entry per produced file instead of
+        only the first. Each entry has 'filename', 'subfolder', 'type',
+        'asset_url', and 'node_id' (the originating workflow node).
+
+        Returns:
+            List of asset info dicts (may be empty if nothing matched).
         """
         logger.debug("Available output keys in workflow: %s", list(outputs.keys()))
+        collected: list[Dict[str, Any]] = []
+        seen_keys: set = set()
+
         for node_id, node_output in outputs.items():
             if not isinstance(node_output, dict):
                 continue
             for key in preferred_output_keys:
                 assets = node_output.get(key)
-                if assets and isinstance(assets, list) and len(assets) > 0:
-                    asset = assets[0]
+                if not assets or not isinstance(assets, list):
+                    continue
+                for asset in assets:
                     if not isinstance(asset, dict):
                         continue
                     filename = asset.get("filename")
@@ -438,29 +473,83 @@ class ComfyUIClient:
                         continue
                     subfolder = asset.get("subfolder", "")
                     output_type = asset.get("type", "output")
-                    
+                    dedupe_key = (filename, subfolder, output_type)
+                    if dedupe_key in seen_keys:
+                        continue
+                    seen_keys.add(dedupe_key)
+
                     # URL encode for special characters
                     base_url = self.base_url.rstrip('/')
                     encoded_filename = quote(filename, safe='')
                     encoded_subfolder = quote(subfolder, safe='') if subfolder else ''
-                    
+
                     if encoded_subfolder:
                         asset_url = f"{base_url}/view?filename={encoded_filename}&subfolder={encoded_subfolder}&type={output_type}"
                     else:
                         asset_url = f"{base_url}/view?filename={encoded_filename}&type={output_type}"
-                    
-                    return {
+
+                    collected.append({
                         "filename": filename,
                         "subfolder": subfolder,
                         "type": output_type,
-                        "asset_url": asset_url
-                    }
-        
-        raise Exception(
-            f"No outputs matched preferred keys: {preferred_output_keys}. "
-            f"Available outputs: {json.dumps({k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in outputs.items()}, indent=2)}"
-        )
+                        "asset_url": asset_url,
+                        "node_id": node_id,
+                        "output_key": key,
+                    })
+
+        return collected
+
+    # Backward-compatible alias used by older call sites / tests
+    def _extract_first_asset_info(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]) -> Dict[str, Any]:
+        all_assets = self._extract_all_assets(outputs, preferred_output_keys)
+        if not all_assets:
+            raise Exception(
+                f"No outputs matched preferred keys: {preferred_output_keys}. "
+                f"Available outputs: {json.dumps({k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in outputs.items()}, indent=2)}"
+            )
+        return all_assets[0]
     
+    def interrupt(self) -> Dict[str, Any]:
+        """Interrupt the currently running prompt in ComfyUI.
+
+        Sends a POST to the /interrupt endpoint, which aborts the active
+        execution without clearing the pending queue. Useful when a job is
+        stuck or consuming too much VRAM.
+
+        Returns:
+            Dict with 'status' and ComfyUI's raw response.
+        """
+        try:
+            response = requests.post(f"{self.base_url}/interrupt", timeout=10)
+            if response.status_code == 200:
+                return {"status": "interrupted", "message": "ComfyUI interrupted the running prompt."}
+            return {
+                "status": "error",
+                "message": f"Interrupt returned {response.status_code}",
+                "detail": response.text[:500],
+            }
+        except requests.RequestException as e:
+            logger.error(f"Failed to interrupt ComfyUI: {e}")
+            raise Exception(f"Failed to interrupt ComfyUI: {e}")
+
+    def clear_queue(self) -> Dict[str, Any]:
+        """Clear all queued (pending) prompts in ComfyUI.
+
+        Sends a POST to /queue with {"clear": true}. The currently running
+        prompt is NOT cancelled by this (use interrupt() for that).
+        """
+        try:
+            response = requests.post(
+                f"{self.base_url}/queue",
+                json={"clear": True},
+                timeout=10,
+            )
+            response.raise_for_status()
+            return {"status": "cleared", "message": "Pending queue cleared."}
+        except requests.RequestException as e:
+            logger.error(f"Failed to clear queue: {e}")
+            raise Exception(f"Failed to clear queue: {e}")
+
     def get_queue(self) -> Dict[str, Any]:
         """Get current queue status from ComfyUI.
         

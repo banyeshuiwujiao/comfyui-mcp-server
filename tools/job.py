@@ -3,7 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 logger = logging.getLogger("MCP_Server")
 
@@ -325,4 +325,38 @@ def register_job_tools(
             }
         except Exception as e:
             logger.exception(f"Failed to cancel job {prompt_id}")
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def interrupt() -> dict:
+        """Interrupt the currently running prompt in ComfyUI.
+
+        Aborts the active execution immediately (without clearing the pending
+        queue). Use this when a job is stuck, producing garbage, or consuming
+        too much VRAM. After interrupting, you can re-submit or clear_queue().
+
+        Returns:
+            Dict with status and a human-readable message.
+        """
+        try:
+            return comfyui_client.interrupt()
+        except Exception as e:
+            logger.exception("Failed to interrupt ComfyUI")
+            return {"error": str(e)}
+
+    @mcp.tool()
+    def clear_queue() -> dict:
+        """Clear all pending (queued) prompts in ComfyUI.
+
+        Removes everything waiting in the queue. The currently running prompt
+        is NOT affected by this call — use interrupt() to stop a running job.
+        Useful for "cold restart" scenarios where a backlog has built up.
+
+        Returns:
+            Dict with status and a human-readable message.
+        """
+        try:
+            return comfyui_client.clear_queue()
+        except Exception as e:
+            logger.exception("Failed to clear queue")
             return {"error": str(e)}

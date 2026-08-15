@@ -334,6 +334,51 @@ comfyui-mcp-server/
 - Use `get_asset_metadata` to verify asset exists before using `regenerate`
 - Check server logs to see if asset was registered successfully
 
+## Parameterized Workflows (PARAM_ Convention)
+
+A workflow is only auto-registered as a dedicated MCP tool when its JSON
+contains `PARAM_` placeholders. This is what makes a workflow "parameterized"
+— without it, you must fall back to the generic `run_workflow` and pass the
+entire JSON via `overrides`.
+
+**How it works:** `managers/workflow_manager._extract_parameters` scans every
+node's `inputs`. Any string value starting with `PARAM_` becomes a tool
+parameter. The token after `PARAM_` is parsed as `TYPE_NAME`, where `TYPE_`
+is an optional type hint (`STR`/`INT`/`FLOAT`/`BOOL`) and `NAME` becomes the
+parameter name (normalized to lowercase snake_case).
+
+```jsonc
+// before: a hardcoded value, not exposed
+"text": "a cat on a mat"
+
+// after: exposed as the `prompt` parameter of the generated tool
+"text": "PARAM_PROMPT"
+"text": "PARAM_STR_PROMPT"      // equivalent, explicit str
+"seed": "PARAM_INT_SEED"        // numeric params ARE supported via the INT/FLOAT hint
+"image": "PARAM_IMAGE"          // for LoadImage nodes
+"image": "PARAM_IMAGE2"         // a second image input (e.g. reference / first frame)
+```
+
+**Subgraph / prefixed node IDs are fully supported.** Node IDs like
+`192:6`, `105:104`, or `427:221:158` (used by Qwen multi-angle subgraphs and
+MiniMax H3) are just dictionary keys — the submission layer posts them
+transparently to ComfyUI. The real gate is the `PARAM_` convention, not the
+node-ID format. The earlier claim that "subgraph-prefixed nodes aren't well
+supported" was a misreading; once `PARAM_` markers are present, subgraph
+workflows register and run normally (and `all_assets` returns every branch's
+output).
+
+**Tips:**
+- Only mark string-typed fields that should be user-facing inputs. Numeric
+  fields (`seed`, `width`, `steps`, `cfg`…) can also be marked using the
+  `INT`/`FLOAT` hints — they'll surface as optional parameters.
+- To expose an image slot, point `PARAM_IMAGE` at a `LoadImage` node's
+  `image` input. For MiniMax H3 i2v/r2v the `prompt` already contains
+  `<Picture 1>`/`<Picture 2>`; keep that text, and bind the corresponding
+  `PARAM_IMAGE`/`PARAM_IMAGE2` to the right LoadImage node.
+- After editing a workflow JSON, restart the MCP server (or rely on the
+  mtime-based cache refresh) so the new tool is registered.
+
 ## Known Limitations (v1.0)
 
 - **Ephemeral asset registry**: `asset_id` references are only valid while the MCP server is running (and until TTL expiry). After restart, previously-issued `asset_id`s can’t be resolved, and regenerate will fail for those assets.
@@ -352,3 +397,27 @@ Issues and pull requests are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for
 ## License
 
 Apache License 2.0
+
+---
+
+## AI Agent Playbook (本地实战指南)
+
+本仓库附带一份面向 AI Agent 的实战 Skill 文档，覆盖「如何稳定地用本机 ComfyUI 生图 / 生视频 / 改图 / 批量多视角」，含已跑通的工作流清单、两种调用方式（MCP / 直接 REST API）、以及常见报错的自我诊断与修复：
+
+- **文档**：[docs/ComfyUI-Mcp-Skill.md](docs/ComfyUI-Mcp-Skill.md)
+- **可直接提交的工作流范例**（API 格式，已验证）：[docs/examples/](docs/examples/)
+  - api_image_flux2_text_to_image_9b.json — Flux2-Klein 9B 文生图
+  - api_image_flux2_klein_image_edit_9b_base.json — Flux2-Klein 图生图/改图
+  - api_qwen_image_edit_2511_1_click_multiple_character_angles-v1.0.json — Qwen 一键角色多视角（6 张）
+  - api_qwen_image_edit_2512_1_click_multiple_scene_angles-v1.0.json — Qwen 一键场景多视角
+  - api_qwen_Image_edit_subgraphed.json — Qwen 图编辑（子图版）
+  - api_video_minimax_h3_i2v.json — MiniMax H3 图生视频
+  - api_video_minimax_h3_t2v.json — MiniMax H3 文生视频
+  - api_video_minimax_h3_r2v.json — MiniMax H3 参考图生视频
+  - api_flux_kontext_dev_image_edit.json — Flux.1-Kontext-dev 图生图/编辑
+  - api_image_z_image_turbo_t2i.json — Z-Image-Turbo 文生图
+  - api_image_z_image_turbo_fun_union_controlnet.json — Z-Image-Turbo + Fun-Union ControlNet
+  - api_utility_z_image_turbo_2k_upscaler.json — Z-Image-Turbo 2K 放大
+
+> 提示：这些 xamples/ 工作流是带子图前缀节点的「直接 API 提交」范例，走 MCP 的 
+un_workflow(overrides=...) 时复杂入参支持有限；复杂修改建议按 Skill 文档的「方式 A（直接 REST API）」改 JSON 提交。

@@ -10,13 +10,14 @@ from typing import AsyncIterator
 
 import requests
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from comfyui_client import ComfyUIClient
 from managers.asset_registry import AssetRegistry
 from managers.defaults_manager import DefaultsManager
 from managers.publish_manager import PublishConfig, PublishManager
 from managers.workflow_manager import WorkflowManager
+from managers.gpu_guard import GpuGuard
 from tools.asset import register_asset_tools
 from tools.configuration import register_configuration_tools
 from tools.generation import register_workflow_generation_tools, register_regenerate_tool
@@ -133,6 +134,7 @@ if not check_comfyui_available(COMFYUI_URL):
 # Global ComfyUI client (fallback since context isn't available)
 comfyui_client = ComfyUIClient(COMFYUI_URL)
 workflow_manager = WorkflowManager(WORKFLOW_DIR)
+gpu_guard = GpuGuard(COMFYUI_URL)
 defaults_manager = DefaultsManager(comfyui_client)
 asset_registry = AssetRegistry(ttl_hours=ASSET_TTL_HOURS, comfyui_base_url=COMFYUI_URL)
 
@@ -180,22 +182,20 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         logger.info("Shutting down MCP server")
 
 
-# Initialize FastMCP with lifespan and port configuration
+# Initialize FastMCP with lifespan configuration
+# Port / stateless_http are passed to mcp.run() (fastmcp 3.x API)
 # Using port 9000 for consistency with previous version
-# Enable stateless_http to avoid requiring session management
 mcp = FastMCP(
     "ComfyUI_MCP_Server",
     lifespan=app_lifespan,
-    port=9000,
-    stateless_http=True
 )
 
 # Register all MCP tools
 register_configuration_tools(mcp, comfyui_client, defaults_manager)
-register_workflow_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry)
+register_workflow_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry, gpu_guard)
 register_asset_tools(mcp, asset_registry)
-register_workflow_generation_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry)
-register_regenerate_tool(mcp, comfyui_client, asset_registry)
+register_workflow_generation_tools(mcp, workflow_manager, comfyui_client, defaults_manager, asset_registry, gpu_guard)
+register_regenerate_tool(mcp, comfyui_client, asset_registry, gpu_guard)
 register_job_tools(mcp, comfyui_client, asset_registry)
 # Always register publish tools (unconditional)
 if publish_manager:
@@ -231,6 +231,11 @@ if __name__ == "__main__":
         logger.info("Starting MCP server with streamable-http transport on http://127.0.0.1:9000/mcp")
         logger.info(f"ComfyUI verified at: {COMFYUI_URL}")
         try:
-            mcp.run(transport="streamable-http")
+            mcp.run(
+                transport="streamable-http",
+                host="127.0.0.1",
+                port=9000,
+                stateless_http=True,
+            )
         except KeyboardInterrupt:
             print("\n[*] Server stopped.")

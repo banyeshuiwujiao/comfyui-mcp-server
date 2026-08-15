@@ -6,7 +6,7 @@ import logging
 import random
 from typing import Any, Dict, Optional
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from managers.workflow_manager import AUDIO_OUTPUT_KEYS, VIDEO_OUTPUT_KEYS
 from models.workflow import WorkflowToolDefinition
 from tools.helpers import register_and_build_response
@@ -19,14 +19,18 @@ def register_workflow_generation_tools(
     workflow_manager,
     comfyui_client,
     defaults_manager,
-    asset_registry
+    asset_registry,
+    gpu_guard=None
 ):
     """Register workflow-backed generation tools (e.g., generate_image, generate_song)"""
-    
+
     def _register_workflow_tool(definition: WorkflowToolDefinition):
         def _tool_impl(*args, **kwargs):
             # Extract return_inline_preview if present (not a workflow parameter)
             return_inline_preview = kwargs.pop("return_inline_preview", False)
+            # Execution control (optional, not workflow parameters)
+            timeout = kwargs.pop("timeout", 360)
+            poll_interval = kwargs.pop("poll_interval", 2.0)
             # Session tracking can be added via request context in the future
             session_id = None
             
@@ -80,6 +84,17 @@ def register_workflow_generation_tools(
                 namespace = "video"
 
             try:
+                # GPU pressure guard: refuse admission under sustained saturation
+                if gpu_guard is not None:
+                    admission = gpu_guard.check_admission()
+                    if not admission["allowed"]:
+                        return {
+                            "error": admission["reason"],
+                            "gpu_util": admission["gpu_util"],
+                            "pending": admission["pending"],
+                            "suggestion": "Call interrupt()/clear_queue() or wait, then retry.",
+                        }
+
                 # Only validate model if the workflow actually has a 'model' parameter
                 has_model_param = "model" in definition.parameters
                 if has_model_param:
@@ -105,6 +120,8 @@ def register_workflow_generation_tools(
                 result = comfyui_client.run_custom_workflow(
                     workflow,
                     preferred_output_keys=definition.output_preferences,
+                    max_attempts=int(timeout / poll_interval) if poll_interval > 0 else 180,
+                    poll_interval=poll_interval,
                 )
                 
                 # Register asset and build response
@@ -190,6 +207,22 @@ def register_workflow_generation_tools(
             default=False,
         ))
         annotations["return_inline_preview"] = bool
+
+        # Add execution-control optional parameters (not workflow parameters)
+        optional_params.append(inspect.Parameter(
+            name="timeout",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=Any,
+            default=360,
+        ))
+        annotations["timeout"] = Any
+        optional_params.append(inspect.Parameter(
+            name="poll_interval",
+            kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            annotation=Any,
+            default=2.0,
+        ))
+        annotations["poll_interval"] = Any
         
         # Combine: required parameters first, then optional
         parameters = required_params + optional_params
@@ -339,7 +372,8 @@ def _update_seed(workflow: dict, seed: Optional[int]) -> dict:
 def register_regenerate_tool(
     mcp: FastMCP,
     comfyui_client,
-    asset_registry
+    asset_registry,
+    gpu_guard=None
 ):
     """Register the regenerate tool for iterating on existing assets."""
     
@@ -378,6 +412,17 @@ def register_regenerate_tool(
             regenerate(asset_id="abc123", seed=-1)
         """
         try:
+            # GPU pressure guard
+            if gpu_guard is not None:
+                admission = gpu_guard.check_admission()
+                if not admission["allowed"]:
+                    return {
+                        "error": admission["reason"],
+                        "gpu_util": admission["gpu_util"],
+                        "pending": admission["pending"],
+                        "suggestion": "Call interrupt()/clear_queue() or wait, then retry.",
+                    }
+
             # Step 1: Retrieve original asset metadata
             asset = asset_registry.get_asset(asset_id)
             if not asset:

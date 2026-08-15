@@ -78,6 +78,21 @@ def register_and_build_response(
     
     if tool_name:
         response_data["tool"] = tool_name
+
+    # Include all produced assets (multi-branch / multi-angle workflows)
+    all_assets = result.get("all_assets")
+    if all_assets:
+        response_data["all_assets"] = [
+            {
+                "asset_url": a["asset_url"],
+                "filename": a["filename"],
+                "subfolder": a["subfolder"],
+                "folder_type": a["type"],
+                "node_id": a.get("node_id"),
+            }
+            for a in all_assets
+        ]
+        response_data["asset_count"] = len(all_assets)
     
     # Include inline preview if requested
     if return_inline_preview:
