@@ -2,12 +2,84 @@
 
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastmcp import FastMCP
 from tools.helpers import register_and_build_response
 
-logger = logging.getLogger("MCP_Server")
+logger = logging.getLogger("MCP_Server__workflow")
+
+PLACEHOLDER_PREFIX = "PARAM_"
+MODEL_INPUT_KEYS = ("unet_name", "ckpt_name", "clip_name", "vae_name",
+                    "lora_name", "model_name", "diffusion_model")
+
+
+def _inspect_workflow(
+    comfyui_client,
+    workflow: Dict[str, Any],
+    workflow_id: str,
+) -> Tuple[List[str], List[str], List[str]]:
+    """Inspect an *already-overridden* workflow for pre-flight failure causes.
+
+    Shared by both ``validate_workflow`` (dry-run, no submission) and the
+    automatic guard that ``run_workflow`` runs before queueing. Returns a tuple
+    ``(issues, checked_models, checked_images)``.
+
+    Checks:
+      - Leftover ``PARAM_`` placeholders (a required/optional param was omitted
+        and not filled by the safety net).
+      - Model files referenced by loader nodes that are not present in ComfyUI.
+      - Input images referenced by LoadImage not found in the ComfyUI input dir.
+    """
+    issues: List[str] = []
+
+    # 1) Leftover PARAM_ placeholders.
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        for k, v in node.get("inputs", {}).items():
+            if isinstance(v, str) and v.startswith(PLACEHOLDER_PREFIX):
+                issues.append(f"Unfilled placeholder {v!r} at node {node_id}.{k}")
+
+    # 2) Model references present in ComfyUI?
+    available = set(getattr(comfyui_client, "available_models", None) or [])
+    checked_models: List[str] = []
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs", {})
+        for key in MODEL_INPUT_KEYS:
+            val = inputs.get(key)
+            if isinstance(val, str) and val:
+                name = val
+                checked_models.append(name)
+                if name not in available:
+                    issues.append(
+                        f"Model '{name}' (node {node_id}.{key}) not found in ComfyUI. "
+                        f"Available loaders may use a different filename or the model is missing."
+                    )
+
+    # 3) Input images present in ComfyUI input dir? (best-effort)
+    checked_images: List[str] = []
+    try:
+        input_list = comfyui_client.list_input_files()
+    except Exception:
+        input_list = None
+    if input_list is not None:
+        input_set = set(input_list)
+        for node_id, node in workflow.items():
+            if not isinstance(node, dict):
+                continue
+            if node.get("class_type") == "LoadImage":
+                fname = node.get("inputs", {}).get("image")
+                if isinstance(fname, str) and fname:
+                    checked_images.append(fname)
+                    if fname not in input_set:
+                        issues.append(
+                            f"Input image '{fname}' (node {node_id}) not found in ComfyUI input directory."
+                        )
+
+    return issues, sorted(set(checked_models)), sorted(set(checked_images))
 
 
 def register_workflow_tools(
@@ -79,6 +151,21 @@ def register_workflow_tools(
                         "suggestion": "Call interrupt()/clear_queue() or wait, then retry.",
                     }
 
+            # Required-parameter guard: check BEFORE applying overrides, because
+            # apply_workflow_overrides silently fills missing required inputs
+            # (e.g. an omitted image) with empty fallbacks, which would otherwise
+            # slip through to ComfyUI and fail only at queue/execution time.
+            pre_issues: List[str] = []
+            try:
+                params = workflow_manager._extract_parameters(workflow)
+                for param in params.values():
+                    if param.required and param.name not in overrides:
+                        pre_issues.append(
+                            f"Required parameter '{param.name}' was not provided."
+                        )
+            except Exception as exc:
+                logger.warning("Required-param pre-check failed: %s", exc)
+
             # Apply overrides with constraints
             workflow = workflow_manager.apply_workflow_overrides(
                 workflow, workflow_id, overrides, defaults_manager
@@ -86,6 +173,26 @@ def register_workflow_tools(
 
             # Extract and remove override report before submitting to ComfyUI
             override_report = workflow.pop("__override_report__", None)
+
+            # Pre-flight guard: inspect the (already-overridden) workflow for
+            # residual placeholders, missing models, and missing input images.
+            # Runs automatically before every submission so the agent gets an
+            # immediate, actionable error instead of a queue rejection from
+            # ComfyUI. Skips the remote model/image checks if ComfyUI is not
+            # reachable (best-effort); placeholder checks always run locally.
+            inspect_issues, checked_models, checked_images = _inspect_workflow(
+                comfyui_client, workflow, workflow_id
+            )
+            all_issues = pre_issues + inspect_issues
+            if all_issues:
+                return {
+                    "error": "Pre-flight validation failed; workflow was NOT submitted.",
+                    "issues": all_issues,
+                    "workflow_id": workflow_id,
+                    "checked_models": checked_models,
+                    "checked_images": checked_images,
+                    "hint": "Fix the issues above and retry, or call validate_workflow() for a detailed dry-run report.",
+                }
 
             # Determine output preferences
             output_preferences = workflow_manager._guess_output_preferences(workflow)
@@ -141,14 +248,25 @@ def register_workflow_tools(
         """
         if overrides is None:
             overrides = {}
+
         workflow = workflow_manager.load_workflow(workflow_id)
         if not workflow:
             return {"ok": False, "issues": [f"Workflow '{workflow_id}' not found"],
                     "workflow_id": workflow_id, "checked_models": [], "checked_images": []}
 
-        issues: list[str] = []
+        # Required-parameter check (mirrors the run_workflow guard).
+        pre_issues: List[str] = []
+        try:
+            params = workflow_manager._extract_parameters(workflow)
+            for param in params.values():
+                if param.required and param.name not in overrides:
+                    pre_issues.append(
+                        f"Required parameter '{param.name}' was not provided."
+                    )
+        except Exception as exc:
+            logger.warning("validate_workflow required-param check failed: %s", exc)
 
-        # 1) Apply overrides (dry-run) so we validate the *effective* workflow.
+        # Apply overrides (dry-run) so we validate the *effective* workflow.
         try:
             workflow = workflow_manager.apply_workflow_overrides(
                 workflow, workflow_id, overrides, defaults_manager
@@ -158,52 +276,11 @@ def register_workflow_tools(
             return {"ok": False, "issues": [f"Failed to apply overrides: {exc}"],
                     "workflow_id": workflow_id, "checked_models": [], "checked_images": []}
 
-        # 2) Leftover PARAM_ placeholders.
-        for node_id, node in workflow.items():
-            if not isinstance(node, dict):
-                continue
-            for k, v in node.get("inputs", {}).items():
-                if isinstance(v, str) and v.startswith("PARAM_"):
-                    issues.append(f"Unfilled placeholder {v!r} at node {node_id}.{k}")
-
-        # 3) Model references present in ComfyUI?
-        available = set(comfyui_client.available_models or [])
-        model_input_keys = ("unet_name", "ckpt_name", "clip_name", "vae_name",
-                            "lora_name", "model_name", "diffusion_model")
-        checked_models: list[str] = []
-        for node_id, node in workflow.items():
-            if not isinstance(node, dict):
-                continue
-            inputs = node.get("inputs", {})
-            for key in model_input_keys:
-                if key in inputs and isinstance(inputs[key], str) and inputs[key]:
-                    name = inputs[key]
-                    checked_models.append(name)
-                    if name not in available:
-                        issues.append(
-                            f"Model '{name}' (node {node_id}.{key}) not found in ComfyUI. "
-                            f"Available loaders may use a different filename or the model is missing."
-                        )
-
-        # 4) Input images present in ComfyUI input dir? (best-effort)
-        checked_images: list[str] = []
-        try:
-            input_list = comfyui_client.list_input_files()
-        except Exception:
-            input_list = None
-        if input_list is not None:
-            input_set = set(input_list)
-            for node_id, node in workflow.items():
-                if not isinstance(node, dict):
-                    continue
-                if node.get("class_type") == "LoadImage":
-                    fname = node.get("inputs", {}).get("image")
-                    if isinstance(fname, str) and fname:
-                        checked_images.append(fname)
-                        if fname not in input_set:
-                            issues.append(
-                                f"Input image '{fname}' (node {node_id}) not found in ComfyUI input directory."
-                            )
+        # Inspect the effective workflow (placeholder / model / image checks).
+        inspect_issues, checked_models, checked_images = _inspect_workflow(
+            comfyui_client, workflow, workflow_id
+        )
+        issues = pre_issues + inspect_issues
 
         return {
             "ok": len(issues) == 0,
