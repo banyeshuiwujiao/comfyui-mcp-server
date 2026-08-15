@@ -54,24 +54,33 @@ class WorkflowManager:
         self.tool_definitions = self._load_workflows()
     
     def _safe_workflow_path(self, workflow_id: str) -> Optional[Path]:
-        """Resolve workflow ID to file path with path traversal protection"""
-        # Normalize workflow_id (remove any path separators and dangerous characters)
+        """Resolve workflow ID to file path with path traversal protection.
+
+        Workflow IDs are filename stems that may legitimately contain dots,
+        dashes and underscores (e.g. ``api_qwen_..._angles-v1.0``). We must NOT
+        strip dots: doing so mangles ``-v1.0`` into ``_v1_0`` and the file can
+        no longer be found, making the workflow uncallable. We only neutralize
+        path separators and ``..`` traversal, then verify the resolved path
+        stays inside ``workflows_dir``.
+        """
+        # Neutralize path separators and parent-dir references.
         safe_id = workflow_id.replace("/", "_").replace("\\", "_").replace("..", "_")
-        # Remove any remaining path-like characters
-        safe_id = "".join(c for c in safe_id if c.isalnum() or c in ("_", "-"))
+        # Allow filename-legal characters; reject anything that could be a
+        # separator or control char we didn't already catch.
+        safe_id = "".join(c for c in safe_id if c.isalnum() or c in ("_", "-", "."))
         if not safe_id:
             logger.warning(f"Invalid workflow_id after sanitization: {workflow_id}")
             return None
-        
+
         workflow_path = (self.workflows_dir / f"{safe_id}.json").resolve()
-        
-        # Ensure the resolved path is within workflows_dir
+
+        # Ensure the resolved path is within workflows_dir (path-traversal guard)
         try:
             workflow_path.relative_to(self.workflows_dir.resolve())
         except ValueError:
             logger.warning(f"Path traversal attempt detected: {workflow_id}")
             return None
-        
+
         return workflow_path if workflow_path.exists() else None
     
     def _load_workflow_metadata(self, workflow_path: Path) -> Dict[str, Any]:
@@ -382,14 +391,11 @@ class WorkflowManager:
         self._refresh_definition_if_stale(definition)
 
         workflow = copy.deepcopy(definition.template)
-        
+
         # Determine namespace (image, audio, or video)
         namespace = self._determine_namespace(definition.workflow_id)
-        
+
         for param in definition.parameters.values():
-            if param.required and param.name not in provided_params:
-                raise ValueError(f"Missing required parameter '{param.name}'")
-            
             # Use provided value, default, or generate (for seed)
             raw_value = provided_params.get(param.name)
             if raw_value is None:
@@ -408,15 +414,31 @@ class WorkflowManager:
                 else:
                     # Fallback to old behavior if no defaults manager
                     continue
-            
+
             coerced_value = self._coerce_value(raw_value, param.annotation)
             for node_id, input_name in param.bindings:
                 workflow[node_id]["inputs"][input_name] = coerced_value
 
         # Safety: never submit a raw PARAM_ placeholder (e.g. an optional param
         # the caller omitted and that had no default). Randomizes seed, zero/empty
-        # for the rest.
+        # for the rest. Run BEFORE the required check so that seed randomization
+        # and every other placeholder still gets filled even when a required
+        # input (e.g. an image) is missing — otherwise the safety net would be
+        # skipped by an early raise and we'd submit unrandomized/naked seeds.
         self._fill_remaining_placeholders(workflow, definition.parameters)
+
+        # Now validate required parameters. We do this last so missing-required
+        # errors come with the workflow already fully filled (no leaked
+        # placeholders), giving the caller a clear, single "what's missing" error.
+        missing_required = [
+            param.name
+            for param in definition.parameters.values()
+            if param.required and param.name not in provided_params
+        ]
+        if missing_required:
+            raise ValueError(
+                f"Missing required parameter(s): {', '.join(missing_required)}"
+            )
 
         return workflow
 
