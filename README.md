@@ -168,12 +168,32 @@ No migration is required unless you want the new capabilities.
 - **`view_audio_preview`**: View audio assets as a visual waveform diagram (`mode="waveform"`) or feature analysis (`mode="analysis"`)
 - **`analyze_audio`**: Comprehensive audio diagnostic tool (BPM estimation, RMS/Peak dBFS, silence detection, lyrics alignment)
 
+### Character & Style Consistency Vault Tools
+
+- **`save_character_profile`**: Save or update a character/style profile (trigger words, LoRA, reference images, style presets)
+- **`get_character_profile`**: Retrieve a character profile by ID
+- **`list_character_profiles`**: Search and browse character profiles by tag, style, or query
+- **`delete_character_profile`**: Delete a character profile
+- **`apply_character_to_prompt`**: Inject character trigger words, LoRA bindings, and style preset into a prompt
+
+### Game/Web Asset Pipeline & Modular Pipeline Tools
+
+- **`remove_background`**: Extract subject and generate 32-bit transparent RGBA PNG (auto-detect / color key / GrabCut)
+- **`generate_sprite_sheet`**: Pack animation loops/sequences into a game engine texture atlas (Atlas PNG + TexturePacker JSON)
+- **`run_pipeline`**: Execute multi-stage composite pipelines in a single tool call with automatic dataflow passing and lineage chaining
+- **`list_pipeline_recipes`**: Browse pre-packaged pipeline recipes (e.g. T2I + 2K Upscale, Character to Sprite Sheet)
+
 ### Asset Management & Lineage Tools
 
 - **`get_asset_lineage`**: Query the ancestry chain and derived children (family tree) of an asset
 - **`search_assets`**: Search historical assets across sessions by prompt keyword, tag, or workflow
 - **`list_assets`**: Browse recently generated assets with multi-dimensional filtering
 - **`get_asset_metadata`**: Get full provenance, parameters, and ComfyUI history for an asset
+
+### MCP Native Resources & Prompts (Read-Only Context & Expert Templates)
+
+- **Resources**: `comfyui://system/gpu-health`, `comfyui://models/checkpoints`, `comfyui://models/loras`, `comfyui://workflows`, `comfyui://characters`, `comfyui://assets/{asset_id}`, `comfyui://assets/{asset_id}/lineage`
+- **Prompts**: `flux_photo_prompt`, `cinematic_video_prompt`, `character_sheet_prompt`, `music_generation_prompt`
 
 ### Job & Queue Management Tools
 

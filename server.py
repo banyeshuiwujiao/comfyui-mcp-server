@@ -27,6 +27,7 @@ from tools.publish import register_publish_tools
 from tools.workflow import register_workflow_tools
 from tools.mcp_resources import register_mcp_resources
 from managers.character_vault import CharacterVault
+from managers.pipeline_orchestrator import PipelineOrchestrator
 from tools.character import register_character_tools
 from tools.pipeline import register_pipeline_tools
 
@@ -144,6 +145,15 @@ defaults_manager = DefaultsManager(comfyui_client)
 asset_registry = AssetRegistry(ttl_hours=ASSET_TTL_HOURS, comfyui_base_url=COMFYUI_URL)
 error_diagnoser = ErrorDiagnoser(comfyui_client, defaults_manager)
 character_vault = CharacterVault(db_path=asset_registry.db_path)
+pipeline_orchestrator = PipelineOrchestrator(
+    comfyui_client=comfyui_client,
+    asset_registry=asset_registry,
+    workflow_manager=workflow_manager,
+    defaults_manager=defaults_manager,
+    character_vault=character_vault,
+    error_diagnoser=error_diagnoser,
+    gpu_guard=gpu_guard,
+)
 
 # Publish manager (always initialized, uses auto-detection)
 try:
@@ -216,8 +226,8 @@ register_mcp_resources(mcp, comfyui_client, asset_registry, workflow_manager, gp
 # Register character consistency vault tools
 register_character_tools(mcp, character_vault)
 
-# Register game/web asset pipeline tools (remove_background & generate_sprite_sheet)
-register_pipeline_tools(mcp, asset_registry, comfyui_client)
+# Register game/web asset pipeline tools (remove_background & generate_sprite_sheet & run_pipeline)
+register_pipeline_tools(mcp, asset_registry, comfyui_client, pipeline_orchestrator)
 
 if __name__ == "__main__":
     # Check if running as MCP command (stdio) or standalone (streamable-http)

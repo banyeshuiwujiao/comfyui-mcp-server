@@ -22,8 +22,8 @@ from asset_processor import (
 logger = logging.getLogger("MCP_Server")
 
 
-def register_pipeline_tools(mcp: FastMCP, asset_registry, comfyui_client):
-    """Register game & web post-processing tools with the MCP server."""
+def register_pipeline_tools(mcp: FastMCP, asset_registry, comfyui_client, pipeline_orchestrator=None):
+    """Register game & web post-processing and composite pipeline tools with the MCP server."""
 
     @mcp.tool()
     def remove_background(
@@ -223,3 +223,59 @@ def register_pipeline_tools(mcp: FastMCP, asset_registry, comfyui_client):
             "atlas_metadata": atlas_meta,
             "status": "success",
         }
+
+    # If pipeline_orchestrator is available, register composite pipeline tools
+    if pipeline_orchestrator is not None:
+        @mcp.tool()
+        def run_pipeline(
+            steps: List[Dict[str, Any]],
+            pipeline_name: Optional[str] = None,
+        ) -> dict:
+            """Execute a multi-stage composite pipeline in a single tool call.
+
+            Automatically pipes intermediate outputs (asset_id / image filename)
+            between sequential steps, links asset lineage trees, and optionally
+            injects character profiles into generation stages.
+
+            Example step definition:
+            ```json
+            [
+              {
+                "tool": "generate_image",
+                "character_id": "detective_john",
+                "params": {"prompt": "investigating crime scene"}
+              },
+              {
+                "tool": "remove_background",
+                "input_from": "previous",
+                "params": {"mode": "auto"}
+              },
+              {
+                "tool": "api_video_minimax_h3_i2v",
+                "input_from": "previous",
+                "params": {"prompt": "<Picture 1> detective drawing flashlight and walking"}
+              }
+            ]
+            ```
+
+            Args:
+                steps: Ordered list of step dicts (`tool`, `params`, optional `input_from`, `character_id`)
+                pipeline_name: Optional custom label for tracking the pipeline
+
+            Returns:
+                Execution result with per-step summaries, durations, and final asset.
+            """
+            return pipeline_orchestrator.execute_pipeline(steps=steps, pipeline_name=pipeline_name)
+
+        @mcp.tool()
+        def list_pipeline_recipes() -> dict:
+            """List pre-packaged high-frequency pipeline recipes (e.g. T2I + 2K Upscale, Character to Sprite Sheet).
+
+            Returns:
+                List of curated multi-stage recipes with step descriptions and parameter schemas.
+            """
+            recipes = pipeline_orchestrator.list_recipes()
+            return {
+                "count": len(recipes),
+                "recipes": recipes,
+            }
