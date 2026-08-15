@@ -2,11 +2,11 @@
 
 import json
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
-from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 from managers.asset_registry import AssetRegistry
-from tools.mcp_resources import register_mcp_resources, _fetch_lora_names
+from managers.character_vault import CharacterVault
+from tools.mcp_resources import register_mcp_resources
 
 
 # ---------------------------------------------------------------------------
@@ -79,12 +79,17 @@ def asset_registry():
 
 
 @pytest.fixture
+def character_vault():
+    return CharacterVault(db_path=":memory:")
+
+
+@pytest.fixture
 def mock_gpu_guard():
     return MagicMock()
 
 
 @pytest.fixture
-def captured_items(mock_comfyui_client, asset_registry, mock_workflow_manager, mock_gpu_guard):
+def captured_items(mock_comfyui_client, asset_registry, mock_workflow_manager, mock_gpu_guard, character_vault):
     """Register resources/prompts and capture them via mock."""
     resources = {}
     prompts = {}
@@ -108,8 +113,9 @@ def captured_items(mock_comfyui_client, asset_registry, mock_workflow_manager, m
     register_mcp_resources(
         mock_mcp, mock_comfyui_client, asset_registry,
         mock_workflow_manager, mock_gpu_guard,
+        character_vault=character_vault,
     )
-    return resources, prompts, asset_registry
+    return resources, prompts, asset_registry, character_vault
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +125,7 @@ def captured_items(mock_comfyui_client, asset_registry, mock_workflow_manager, m
 class TestResources:
 
     def test_gpu_health_resource(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         assert "comfyui://system/gpu-health" in resources
 
@@ -150,7 +156,7 @@ class TestResources:
             assert result["queue_pending_count"] == 0
 
     def test_gpu_health_saturated(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         with patch("tools.mcp_resources._fetch_system_stats") as mock_stats, \
              patch("tools.mcp_resources._fetch_queue_info") as mock_queue:
@@ -176,7 +182,7 @@ class TestResources:
             assert "saturated" in result["recommendation"].lower()
 
     def test_checkpoints_resource(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         assert "comfyui://models/checkpoints" in resources
         result = json.loads(resources["comfyui://models/checkpoints"]())
@@ -186,7 +192,7 @@ class TestResources:
         assert "by_loader_type" in result
 
     def test_loras_resource(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         assert "comfyui://models/loras" in resources
 
@@ -197,7 +203,7 @@ class TestResources:
             assert "style_watercolor.safetensors" in result["loras"]
 
     def test_workflows_resource(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         assert "comfyui://workflows" in resources
         result = json.loads(resources["comfyui://workflows"]())
@@ -225,7 +231,7 @@ class TestResources:
         assert "seed" in param_names
 
     def test_asset_detail_resource(self, captured_items):
-        resources, _, registry = captured_items
+        resources, _, registry, _ = captured_items
 
         assert "comfyui://assets/{asset_id}" in resources
 
@@ -249,14 +255,14 @@ class TestResources:
         assert result["seed"] == 42
 
     def test_asset_detail_not_found(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         result = json.loads(resources["comfyui://assets/{asset_id}"]("nonexistent-id"))
         assert "error" in result
         assert "not found" in result["error"]
 
     def test_asset_lineage_resource(self, captured_items):
-        resources, _, registry = captured_items
+        resources, _, registry, _ = captured_items
 
         assert "comfyui://assets/{asset_id}/lineage" in resources
 
@@ -277,9 +283,46 @@ class TestResources:
         assert result["parent_asset_id"] == parent.asset_id
 
     def test_asset_lineage_not_found(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         result = json.loads(resources["comfyui://assets/{asset_id}/lineage"]("nonexistent"))
+        assert "error" in result
+
+    def test_characters_resource(self, captured_items):
+        resources, _, _, vault = captured_items
+
+        assert "comfyui://characters" in resources
+
+        vault.save_profile(
+            character_id="detective_john",
+            display_name="Detective John",
+            trigger_words="1man, trenchcoat",
+            tags=["protagonist"],
+        )
+
+        result = json.loads(resources["comfyui://characters"]())
+        assert result["count"] == 1
+        assert result["characters"][0]["character_id"] == "detective_john"
+
+    def test_character_detail_resource(self, captured_items):
+        resources, _, _, vault = captured_items
+
+        assert "comfyui://characters/{character_id}" in resources
+
+        vault.save_profile(
+            character_id="detective_john",
+            display_name="Detective John",
+            trigger_words="1man, trenchcoat",
+        )
+
+        result = json.loads(resources["comfyui://characters/{character_id}"]("detective_john"))
+        assert result["character_id"] == "detective_john"
+        assert result["trigger_words"] == "1man, trenchcoat"
+
+    def test_character_detail_resource_not_found(self, captured_items):
+        resources, _, _, _ = captured_items
+
+        result = json.loads(resources["comfyui://characters/{character_id}"]("nonexistent"))
         assert "error" in result
 
 
@@ -290,7 +333,7 @@ class TestResources:
 class TestPrompts:
 
     def test_flux_photo_prompt(self, captured_items):
-        _, prompts, _ = captured_items
+        _, prompts, _, _ = captured_items
 
         assert "flux_photo_prompt" in prompts
         result = prompts["flux_photo_prompt"](subject="a cyberpunk detective in a neon-lit alley")
@@ -303,7 +346,7 @@ class TestPrompts:
         assert "Steps" in content
 
     def test_flux_photo_prompt_custom_params(self, captured_items):
-        _, prompts, _ = captured_items
+        _, prompts, _, _ = captured_items
 
         result = prompts["flux_photo_prompt"](
             subject="a white cat",
@@ -318,7 +361,7 @@ class TestPrompts:
         assert "mysterious" in content
 
     def test_cinematic_video_prompt(self, captured_items):
-        _, prompts, _ = captured_items
+        _, prompts, _, _ = captured_items
 
         assert "cinematic_video_prompt" in prompts
         result = prompts["cinematic_video_prompt"](
@@ -332,7 +375,7 @@ class TestPrompts:
         assert "minimax" in content.lower() or "MiniMax" in content
 
     def test_cinematic_video_prompt_picture_note(self, captured_items):
-        _, prompts, _ = captured_items
+        _, prompts, _, _ = captured_items
 
         # Without <Picture> → should contain the MiniMax H3 note
         result = prompts["cinematic_video_prompt"](scene="A sunset over the ocean")
@@ -340,7 +383,7 @@ class TestPrompts:
         assert "<Picture 1>" in content
 
     def test_character_sheet_prompt(self, captured_items):
-        _, prompts, _ = captured_items
+        _, prompts, _, _ = captured_items
 
         assert "character_sheet_prompt" in prompts
         result = prompts["character_sheet_prompt"](
@@ -355,7 +398,7 @@ class TestPrompts:
         assert "qwen" in content.lower() or "2511" in content
 
     def test_music_generation_prompt(self, captured_items):
-        _, prompts, _ = captured_items
+        _, prompts, _, _ = captured_items
 
         assert "music_generation_prompt" in prompts
         result = prompts["music_generation_prompt"](
@@ -372,7 +415,7 @@ class TestPrompts:
         assert "analyze_audio" in content
 
     def test_all_expected_resources_registered(self, captured_items):
-        resources, _, _ = captured_items
+        resources, _, _, _ = captured_items
 
         expected_uris = [
             "comfyui://system/gpu-health",
@@ -381,12 +424,14 @@ class TestPrompts:
             "comfyui://workflows",
             "comfyui://assets/{asset_id}",
             "comfyui://assets/{asset_id}/lineage",
+            "comfyui://characters",
+            "comfyui://characters/{character_id}",
         ]
         for uri in expected_uris:
             assert uri in resources, f"Missing resource: {uri}"
 
     def test_all_expected_prompts_registered(self, captured_items):
-        _, prompts, _ = captured_items
+        _, prompts, _, _ = captured_items
 
         expected = [
             "flux_photo_prompt",

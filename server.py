@@ -26,6 +26,8 @@ from tools.job import register_job_tools
 from tools.publish import register_publish_tools
 from tools.workflow import register_workflow_tools
 from tools.mcp_resources import register_mcp_resources
+from managers.character_vault import CharacterVault
+from tools.character import register_character_tools
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -140,6 +142,7 @@ gpu_guard = GpuGuard(COMFYUI_URL)
 defaults_manager = DefaultsManager(comfyui_client)
 asset_registry = AssetRegistry(ttl_hours=ASSET_TTL_HOURS, comfyui_base_url=COMFYUI_URL)
 error_diagnoser = ErrorDiagnoser(comfyui_client, defaults_manager)
+character_vault = CharacterVault(db_path=asset_registry.db_path)
 
 # Publish manager (always initialized, uses auto-detection)
 try:
@@ -207,7 +210,10 @@ else:
     logger.error("Publish manager not available - publish tools will not be registered")
 
 # Register MCP Resources & Prompts (read-only context + expert templates)
-register_mcp_resources(mcp, comfyui_client, asset_registry, workflow_manager, gpu_guard)
+register_mcp_resources(mcp, comfyui_client, asset_registry, workflow_manager, gpu_guard, character_vault=character_vault)
+
+# Register character consistency vault tools
+register_character_tools(mcp, character_vault)
 
 if __name__ == "__main__":
     # Check if running as MCP command (stdio) or standalone (streamable-http)

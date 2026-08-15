@@ -75,6 +75,7 @@ def register_mcp_resources(
     asset_registry,
     workflow_manager,
     gpu_guard,
+    character_vault=None,
 ):
     """Register all MCP Resources and Prompts with the FastMCP server."""
 
@@ -299,6 +300,42 @@ def register_mcp_resources(
 
         lineage = asset_registry.get_lineage(asset_id)
         return json.dumps(lineage, indent=2, default=str)
+
+    # --- 7. Character Profiles Vault ---
+    if character_vault is not None:
+        @mcp.resource(
+            "comfyui://characters",
+            name="Character & Style Profiles",
+            description=(
+                "All saved character and style consistency profiles in the vault. "
+                "Contains trigger words, LoRA bindings, reference images, and "
+                "style presets for cross-session consistency."
+            ),
+            mime_type="application/json",
+        )
+        def characters_resource() -> str:
+            profiles = character_vault.list_profiles()
+            result = {
+                "count": len(profiles),
+                "characters": [character_vault.profile_to_dict(p) for p in profiles],
+            }
+            return json.dumps(result, indent=2)
+
+        # --- 8. Single Character Profile (Template Resource) ---
+        @mcp.resource(
+            "comfyui://characters/{character_id}",
+            name="Character Profile Details",
+            description=(
+                "Detailed character profile: trigger words, negative triggers, "
+                "LoRA bindings, reference images, style presets, and default parameters."
+            ),
+            mime_type="application/json",
+        )
+        def character_detail_resource(character_id: str) -> str:
+            profile = character_vault.get_profile(character_id)
+            if not profile:
+                return json.dumps({"error": f"Character profile '{character_id}' not found"})
+            return json.dumps(character_vault.profile_to_dict(profile), indent=2)
 
     # ===================================================================
     # PROMPTS
