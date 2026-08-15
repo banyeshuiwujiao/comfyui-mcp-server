@@ -158,7 +158,7 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 
 **P1 取结果 — 多分支 / Preview 全部取回**
 - `comfyui_client` 新增 `_extract_all_assets()`：遍历**所有节点 / 所有 SaveImage / SaveVideo / Preview 分支**，收集每一个产物（去重），返回 `all_assets` 列表（含 `asset_url` / `node_id`）。
-- `run_custom_workflow` 返回结果现含 `all_assets` 与 `asset_count`；`helpers.register_and_build_response` 将其透传到工具响应。
+- `run_custom_workflow` 返回结果现含 `all_assets` 与 `asset_count`；`helpers.register_and_build_response` 将其透传到工具响应。`all_assets` 每项额外带 `label` 字段（从 SaveImage/SaveVideo 节点的 `filename_prefix` 推导，如 `close_up`/`wide_shot`/`aerial_view`），Agent 可据此区分多分支产物而无需解析原始 outputs。
 - **解决 Qwen 多视角取不到图的问题**：`api_qwen_*` 工作流有 6~9 个 SaveImage 分支（如 `373` close_up、`374` wide_shot、`376` aerial_view …），旧逻辑只取第一个；现在 `all_assets` 返回全部角度图，调用方逐一取用。`asset_url` 仍指向首个产物以保持向后兼容。
 - **验证结论（2026-08-15）**：`_extract_all_assets` 单元测试（模拟 8 SaveImage + 1 Preview + 1 gif + 1 重复去重 = 10 资产，顺序/去重正确）与响应管线测试（`helpers.register_and_build_response` 正确透传 3 分支含 `node_id`）均 PASS。端到端单分支工作流（`api_image_z_image_turbo_t2i`）`all_assets` 透传已实测成功。Qwen 2511 在本机 RTX 4070 Ti SUPER（16GB）因 6 个并行 KSampler 子图显存压力过大、ComfyUI 端 KSampler 报 `HostBuffer.read_file_slice failed` 而未能跑通——这是**工作流/硬件层限制，非 MCP 代码缺陷**；MCP 端正确把 ComfyUI 执行失败以 `{"error": ...}` 返回。待更大显存或轻量化 Qwen 子图后，多分支 `all_assets` 即可真实产出全部角度图。
 

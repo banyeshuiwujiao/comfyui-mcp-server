@@ -74,7 +74,15 @@ def register_workflow_generation_tools(
             
             bound = _tool_impl.__signature__.bind(*args, **coerced_kwargs)
             bound.apply_defaults()
-            
+
+            # Only pass workflow parameters to render_workflow. Control parameters
+            # (return_inline_preview/timeout/poll_interval) and any stray keys must
+            # never leak into the workflow as node inputs, even if a future edit
+            # forgets to pop a new control flag.
+            provided_params = {
+                k: v for k, v in bound.arguments.items() if k in param_dict
+            }
+
             # Determine namespace using workflow manager (content-aware)
             namespace = workflow_manager._determine_namespace(definition.workflow_id)
             # Refine using output preferences (catches custom audio/video workflows)
@@ -116,14 +124,34 @@ def register_workflow_generation_tools(
 
                         return {"error": error_msg}
                 
-                workflow = workflow_manager.render_workflow(definition, dict(bound.arguments), defaults_manager)
+                workflow = workflow_manager.render_workflow(definition, provided_params, defaults_manager)
                 result = comfyui_client.run_custom_workflow(
                     workflow,
                     preferred_output_keys=definition.output_preferences,
                     max_attempts=int(timeout / poll_interval) if poll_interval > 0 else 180,
                     poll_interval=poll_interval,
                 )
-                
+
+                # If the job is still running after the blocking timeout, try to
+                # continue polling a bounded number of times instead of handing a
+                # half-finished job handle to the agent. The agent can still call
+                # get_job(prompt_id) if this also times out.
+                if result.get("status") == "running":
+                    prompt_id = result.get("prompt_id")
+                    for _ in range(2):  # up to 2 extra continuation rounds
+                        time.sleep(poll_interval)
+                        cont = comfyui_client.get_job_continuation(prompt_id)
+                        if cont is not None:
+                            result = cont
+                            break
+                    if result.get("status") == "running":
+                        result.setdefault("message", "")
+                        result["message"] = (
+                            result.get("message", "") +
+                            " Still running after extended wait; poll get_job(prompt_id) "
+                            "to retrieve outputs when ready."
+                        ).strip()
+
                 # Register asset and build response
                 return register_and_build_response(
                     result,

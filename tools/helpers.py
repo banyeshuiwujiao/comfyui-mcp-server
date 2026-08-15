@@ -89,6 +89,7 @@ def register_and_build_response(
                 "subfolder": a["subfolder"],
                 "folder_type": a["type"],
                 "node_id": a.get("node_id"),
+                "label": a.get("label"),
             }
             for a in all_assets
         ]

@@ -125,10 +125,32 @@ def register_job_tools(
                     
                     # Check if completed with outputs
                     if "outputs" in prompt_data and prompt_data["outputs"]:
+                        # Expose a labeled asset list (best-effort from filenames)
+                        # so the agent can pick branches without parsing raw outputs.
+                        try:
+                            all_assets = comfyui_client._extract_all_assets(
+                                prompt_data["outputs"],
+                                ("images", "image", "gifs", "gif", "audio", "audios", "files", "videos", "video"),
+                                None,
+                            )
+                        except Exception:
+                            all_assets = []
                         return {
                             "status": "completed",
                             "prompt_id": prompt_id,
                             "outputs": prompt_data["outputs"],
+                            "all_assets": [
+                                {
+                                    "asset_url": a["asset_url"],
+                                    "filename": a["filename"],
+                                    "subfolder": a["subfolder"],
+                                    "folder_type": a["type"],
+                                    "node_id": a.get("node_id"),
+                                    "label": a.get("label"),
+                                }
+                                for a in all_assets
+                            ],
+                            "asset_count": len(all_assets),
                             "history": prompt_data,
                             "message": "Job completed successfully"
                         }

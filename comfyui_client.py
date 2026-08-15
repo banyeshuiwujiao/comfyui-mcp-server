@@ -91,7 +91,7 @@ class ComfyUIClient:
             }
 
         # Extract all matched assets across every node / branch / preview
-        all_assets = self._extract_all_assets(outputs, preferred_output_keys)
+        all_assets = self._extract_all_assets(outputs, preferred_output_keys, workflow)
         if not all_assets:
             raise Exception(
                 f"No outputs matched preferred keys: {preferred_output_keys}. "
@@ -443,13 +443,21 @@ class ComfyUIClient:
             f"Available outputs: {json.dumps({k: list(v.keys()) if isinstance(v, dict) else type(v).__name__ for k, v in outputs.items()}, indent=2)}"
         )
     
-    def _extract_all_assets(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]) -> list[Dict[str, Any]]:
+    def _extract_all_assets(
+        self,
+        outputs: Dict[str, Any],
+        preferred_output_keys: Sequence[str],
+        workflow: Optional[Dict[str, Any]] = None,
+    ) -> list[Dict[str, Any]]:
         """Extract every matched asset across all nodes / branches / preview outputs.
 
         For multi-branch workflows (e.g., Qwen multi-angle edits with several
         SaveImage nodes), this returns one entry per produced file instead of
         only the first. Each entry has 'filename', 'subfolder', 'type',
-        'asset_url', and 'node_id' (the originating workflow node).
+        'asset_url', 'node_id' (the originating workflow node), 'output_key',
+        and an optional 'label' (derived from the producing node's
+        filename_prefix, e.g. "close_up" / "wide_shot") so callers can tell
+        branches apart.
 
         Returns:
             List of asset info dicts (may be empty if nothing matched).
@@ -478,6 +486,10 @@ class ComfyUIClient:
                         continue
                     seen_keys.add(dedupe_key)
 
+                    # Derive a human label from the producing node's filename_prefix
+                    # (e.g. "ComfyUI-close_up" -> "close_up"). Falls back to node_id.
+                    label = self._derive_asset_label(workflow, node_id, filename)
+
                     # URL encode for special characters
                     base_url = self.base_url.rstrip('/')
                     encoded_filename = quote(filename, safe='')
@@ -495,9 +507,32 @@ class ComfyUIClient:
                         "asset_url": asset_url,
                         "node_id": node_id,
                         "output_key": key,
+                        "label": label,
                     })
 
         return collected
+
+    @staticmethod
+    def _derive_asset_label(
+        workflow: Optional[Dict[str, Any]], node_id: str, filename: str
+    ) -> str:
+        """Best-effort semantic label for an asset (branch/slot name).
+
+        Tries the producing node's ``filename_prefix`` input (common in
+        SaveImage / SaveVideo nodes), stripping a leading ``ComfyUI-`` prefix.
+        Falls back to the node id, then the bare filename.
+        """
+        if workflow:
+            node = workflow.get(node_id)
+            if isinstance(node, dict):
+                prefix = node.get("inputs", {}).get("filename_prefix")
+                if isinstance(prefix, str) and prefix:
+                    return prefix[8:] if prefix.startswith("ComfyUI-") else prefix
+        # Fallback: strip the ComfyUI_ timestamp prefix from the filename itself.
+        if filename.startswith("ComfyUI-"):
+            base = filename[len("ComfyUI-"):]
+            return base.split("_")[0] if base else filename
+        return node_id
 
     # Backward-compatible alias used by older call sites / tests
     def _extract_first_asset_info(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]) -> Dict[str, Any]:
@@ -563,6 +598,62 @@ class ComfyUIClient:
             logger.error(f"Failed to get queue status: {e}")
             raise Exception(f"Failed to get queue status: {e}")
     
+    def get_job_continuation(self, prompt_id: str) -> Optional[Dict[str, Any]]:
+        """One-shot poll used to continue a job that returned status="running".
+
+        Returns the same success-shaped dict as ``run_custom_workflow`` when the
+        prompt has completed, or ``None`` if it is still running / not yet
+        present in history. Errors are returned as a ``{"error": ...}`` dict so
+        callers can surface them instead of looping forever.
+        """
+        try:
+            history = self.get_history(prompt_id)
+        except Exception as e:
+            return {"error": f"Failed to poll job {prompt_id}: {e}"}
+
+        if not isinstance(history, dict) or prompt_id not in history:
+            return None  # still running / not recorded yet
+
+        prompt_data = history[prompt_id]
+        if not isinstance(prompt_data, dict):
+            return None
+
+        if "error" in prompt_data:
+            return {"error": json.dumps(prompt_data["error"], indent=2)}
+
+        status = prompt_data.get("status", {})
+        if isinstance(status, dict) and status.get("status_str") == "error":
+            return {"error": self._extract_node_errors(prompt_data)}
+
+        outputs = prompt_data.get("outputs")
+        if not outputs:
+            return None  # completed-but-empty or still in flight
+
+        # Reuse the standard extraction path so callers get a consistent shape.
+        all_assets = self._extract_all_assets(outputs, ("images", "image", "gifs", "gif", "audio", "audios", "files", "videos", "video"), None)
+        if not all_assets:
+            return {"error": f"No outputs matched for job {prompt_id}."}
+
+        asset_info = all_assets[0]
+        asset_url = asset_info["asset_url"]
+        asset_metadata = self._get_asset_metadata(asset_url, outputs, ("images", "image", "gifs", "gif", "audio", "audios", "files", "videos", "video"), None)
+        try:
+            comfy_history = self.get_history(prompt_id)
+        except Exception:
+            comfy_history = None
+        return {
+            "asset_url": asset_url,
+            "filename": asset_info["filename"],
+            "subfolder": asset_info["subfolder"],
+            "folder_type": asset_info["type"],
+            "prompt_id": prompt_id,
+            "raw_outputs": outputs,
+            "asset_metadata": asset_metadata,
+            "comfy_history": comfy_history.get(prompt_id) if comfy_history else None,
+            "all_assets": all_assets,
+            "submitted_workflow": None,
+        }
+
     def get_history(self, prompt_id: Optional[str] = None) -> Dict[str, Any]:
         """Get history from ComfyUI.
         
