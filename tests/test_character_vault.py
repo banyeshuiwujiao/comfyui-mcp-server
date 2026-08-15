@@ -308,3 +308,25 @@ class TestCharacterTools:
         ]
         for name in expected:
             assert name in tools, f"Missing tool: {name}"
+
+    def test_all_builtin_style_presets(self, vault):
+        for preset_name in STYLE_PRESETS.keys():
+            vault.save_profile(
+                character_id=f"char_{preset_name}",
+                display_name=f"Char {preset_name}",
+                style_preset=preset_name,
+            )
+            res = vault.apply_character(f"char_{preset_name}", "portrait")
+            assert "error" not in res
+            assert STYLE_PRESETS[preset_name] in res["prompt"]
+
+    def test_apply_character_empty_prompt(self, vault):
+        vault.save_profile(
+            character_id="solo_char",
+            display_name="Solo",
+            trigger_words="masterpiece, 1girl",
+            negative_trigger="lowres",
+        )
+        res = vault.apply_character("solo_char", prompt="", negative_prompt="")
+        assert res["prompt"] == "masterpiece, 1girl"
+        assert res["negative_prompt"] == "lowres"

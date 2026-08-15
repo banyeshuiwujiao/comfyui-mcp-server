@@ -441,3 +441,50 @@ class TestPrompts:
         ]
         for name in expected:
             assert name in prompts, f"Missing prompt: {name}"
+
+    def test_gpu_health_busy_status(self, captured_items):
+        resources, _, _, _ = captured_items
+
+        with patch("tools.mcp_resources._fetch_system_stats") as mock_stats, \
+             patch("tools.mcp_resources._fetch_queue_info") as mock_queue:
+            mock_stats.return_value = {
+                "devices": [
+                    {
+                        "name": "GPU",
+                        "type": "cuda",
+                        "vram_total": 16 * (1024 ** 3),
+                        "vram_free": 4 * (1024 ** 3),  # 75% used -> busy
+                    }
+                ]
+            }
+            mock_queue.return_value = {
+                "queue_running": [],
+                "queue_pending": [],
+            }
+
+            result = json.loads(resources["comfyui://system/gpu-health"]())
+            assert result["status"] == "busy"
+            assert "moderately" in result["recommendation"]
+
+    def test_loras_resource_empty(self, captured_items):
+        resources, _, _, _ = captured_items
+
+        with patch("tools.mcp_resources._fetch_lora_names") as mock_loras:
+            mock_loras.return_value = []
+            result = json.loads(resources["comfyui://models/loras"]())
+            assert result["count"] == 0
+            assert result["loras"] == []
+
+    def test_characters_resource_empty(self, captured_items):
+        resources, _, _, vault = captured_items
+        # Vault has no characters
+        result = json.loads(resources["comfyui://characters"]())
+        assert result["count"] == 0
+        assert result["characters"] == []
+
+    def test_helpers_network_failures(self):
+        from tools.mcp_resources import _fetch_system_stats, _fetch_queue_info, _fetch_lora_names
+        with patch("requests.get", side_effect=Exception("Connection refused")):
+            assert _fetch_system_stats("http://invalid") == {}
+            assert _fetch_queue_info("http://invalid") == {}
+            assert _fetch_lora_names("http://invalid") == []

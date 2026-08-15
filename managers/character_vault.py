@@ -299,21 +299,26 @@ class CharacterVault:
         # Positive prompt: prepend trigger words
         enhanced_prompt = prompt
         if profile.trigger_words:
-            enhanced_prompt = f"{profile.trigger_words}, {prompt}"
+            if prompt and prompt.strip():
+                enhanced_prompt = f"{profile.trigger_words}, {prompt}"
+            else:
+                enhanced_prompt = profile.trigger_words
 
         # Negative prompt: prepend negative trigger
         enhanced_negative = negative_prompt
         if profile.negative_trigger:
-            enhanced_negative = (
-                f"{profile.negative_trigger}, {negative_prompt}"
-                if negative_prompt
-                else profile.negative_trigger
-            )
+            if negative_prompt and negative_prompt.strip():
+                enhanced_negative = f"{profile.negative_trigger}, {negative_prompt}"
+            else:
+                enhanced_negative = profile.negative_trigger
 
         # Style preset expansion
         if profile.style_preset:
             style_suffix = STYLE_PRESETS.get(profile.style_preset, profile.style_preset)
-            enhanced_prompt = f"{enhanced_prompt}, {style_suffix}"
+            if enhanced_prompt and enhanced_prompt.strip():
+                enhanced_prompt = f"{enhanced_prompt}, {style_suffix}"
+            else:
+                enhanced_prompt = style_suffix
 
         return {
             "character_id": character_id,

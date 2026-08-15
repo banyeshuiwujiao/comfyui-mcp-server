@@ -218,3 +218,89 @@ class TestPipelineMCPTools:
             )
             assert res["status"] == "success"
             assert res["total_steps"] == 2
+
+    def test_execute_three_step_pipeline_full_cycle(self, orchestrator, asset_registry):
+        raw_png = create_synthetic_png()
+
+        with patch("asset_processor.fetch_asset_bytes", return_value=raw_png):
+            steps = [
+                {
+                    "step_name": "first_step",
+                    "tool": "api_image_flux2_text_to_image_9b",
+                    "params": {"prompt": "a hero standing"},
+                },
+                {
+                    "step_name": "matting_step",
+                    "tool": "remove_background",
+                    "input_from": "first_step",
+                    "params": {"mode": "auto"},
+                },
+                {
+                    "step_name": "atlas_step",
+                    "tool": "generate_sprite_sheet",
+                    "input_from": "previous",
+                    "params": {"frame_count": 4, "columns": 2},
+                },
+            ]
+
+            result = orchestrator.execute_pipeline(steps=steps, pipeline_name="three_step_cycle")
+            assert result["status"] == "success"
+            assert result["total_steps"] == 3
+            assert len(result["completed_steps"]) == 3
+            assert result["final_asset"]["mime_type"] == "image/png"
+
+    def test_execute_pipeline_input_from_asset_uuid(self, orchestrator, asset_registry):
+        raw_png = create_synthetic_png()
+        existing = asset_registry.register_asset(
+            filename="existing_hero.png",
+            subfolder="",
+            folder_type="output",
+            workflow_id="gen",
+            prompt_id="p0",
+            mime_type="image/png",
+            bytes_size=len(raw_png),
+        )
+
+        with patch("asset_processor.fetch_asset_bytes", return_value=raw_png):
+            steps = [
+                {
+                    "tool": "remove_background",
+                    "input_from": f"asset:{existing.asset_id}",
+                    "params": {"mode": "auto"},
+                }
+            ]
+            result = orchestrator.execute_pipeline(steps=steps)
+            assert result["status"] == "success"
+            assert result["completed_steps"][0]["tool"] == "remove_background"
+
+    def test_execute_pipeline_missing_tool_identifier(self, orchestrator):
+        steps = [{"params": {"prompt": "no tool specified"}}]
+        result = orchestrator.execute_pipeline(steps=steps)
+        assert "error" in result
+        assert result["failing_step_index"] == 0
+
+    def test_execute_pipeline_error_with_diagnosis(self, mock_comfyui_client, asset_registry, mock_workflow_manager):
+        mock_diagnoser = MagicMock()
+        mock_diagnoser.diagnose_error.return_value = {
+            "error_type": "CUDA_OOM",
+            "actionable_recommendations": ["Reduce width/height"],
+            "suggested_params": {"width": 512, "height": 512},
+        }
+        mock_client = MagicMock()
+        mock_client.base_url = "http://localhost:8188"
+        mock_client.run_custom_workflow.side_effect = RuntimeError("CUDA out of memory")
+
+        orch = PipelineOrchestrator(
+            comfyui_client=mock_client,
+            asset_registry=asset_registry,
+            workflow_manager=mock_workflow_manager,
+            error_diagnoser=mock_diagnoser,
+        )
+
+        steps = [
+            {"tool": "api_image_flux2_text_to_image_9b", "params": {"width": 4096, "height": 4096}}
+        ]
+        result = orch.execute_pipeline(steps=steps)
+        assert result["status"] == "failed"
+        assert result["failing_step_index"] == 0
+        assert result["diagnosis"]["error_type"] == "CUDA_OOM"

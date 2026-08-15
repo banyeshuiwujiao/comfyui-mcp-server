@@ -218,3 +218,68 @@ class TestAssetPipelineTools:
             assert res["generation_type"] == "sprite_sheet"
             assert "atlas_metadata" in res
             assert "frames" in res["atlas_metadata"]
+
+    def test_remove_image_background_hex_and_named_colors(self):
+        raw_black_bg = create_synthetic_object_image(bg_color=(0, 0, 0), fg_color=(255, 255, 255))
+        trans_black = remove_image_background(raw_black_bg, mode="color", bgcolor="black")
+        assert len(trans_black) > 0
+
+        raw_hex_bg = create_synthetic_object_image(bg_color=(255, 0, 0), fg_color=(0, 255, 0))
+        trans_hex = remove_image_background(raw_hex_bg, mode="color", bgcolor="#ff0000")
+        assert len(trans_hex) > 0
+
+        # Invalid hex fallback
+        trans_invalid = remove_image_background(raw_hex_bg, mode="color", bgcolor="invalid_hex")
+        assert len(trans_invalid) > 0
+
+    def test_build_sprite_sheet_empty_raises(self):
+        with pytest.raises(ValueError):
+            build_sprite_sheet(frames=[])
+
+    def test_build_sprite_sheet_webp_format(self):
+        frames = create_synthetic_frames(count=5, size=(32, 32))
+        atlas_bytes, meta = build_sprite_sheet(frames, out_format="WEBP")
+        assert len(atlas_bytes) > 0
+        assert meta["meta"]["columns"] == 3
+        assert meta["meta"]["rows"] == 2
+        assert meta["meta"]["frame_count"] == 5
+
+    def test_generate_sprite_sheet_with_remove_bg(self, captured_pipeline_tools):
+        tools, registry = captured_pipeline_tools
+        raw_png = create_synthetic_object_image(bg_color=(255, 255, 255), fg_color=(200, 50, 50), size=(64, 64))
+
+        parent = registry.register_asset(
+            filename="char_hero.png",
+            subfolder="",
+            folder_type="output",
+            workflow_id="generate_image",
+            prompt_id="p003",
+            mime_type="image/png",
+            bytes_size=len(raw_png),
+        )
+
+        with patch("tools.pipeline.fetch_asset_bytes", return_value=raw_png):
+            res = tools["generate_sprite_sheet"](
+                asset_id=parent.asset_id,
+                frame_count=2,
+                columns=2,
+                remove_bg=True,
+                format="webp",
+            )
+            assert res["status"] == "success"
+            assert "spritesheet_char_hero.webp" in res["filename"]
+
+    def test_generate_sprite_sheet_not_found(self, captured_pipeline_tools):
+        tools, _ = captured_pipeline_tools
+        res = tools["generate_sprite_sheet"](asset_id="nonexistent-video")
+        assert "error" in res
+
+    def test_remove_background_fetch_failure(self, captured_pipeline_tools):
+        tools, registry = captured_pipeline_tools
+        parent = registry.register_asset(
+            filename="empty.png", subfolder="", folder_type="output",
+            workflow_id="gen", prompt_id="p", mime_type="image/png", bytes_size=10,
+        )
+        with patch("tools.pipeline.fetch_asset_bytes", return_value=None):
+            res = tools["remove_background"](asset_id=parent.asset_id)
+            assert "error" in res
