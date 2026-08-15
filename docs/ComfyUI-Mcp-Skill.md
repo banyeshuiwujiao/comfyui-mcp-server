@@ -173,6 +173,11 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 - i2v/r2v 的 `prompt` 内 `<Picture 1>`/`<Picture 2>` 是 MiniMax H3 模型对首帧/参考图的语义引用，**无需 MCP 端做字符串替换**——图经 `PARAM_IMAGE`/`PARAM_IMAGE2` 绑定的 LoadImage 节点（i2v=`114`、r2v=`137`/`139`）加载后，模型自行对齐。
 - MCP 调用约定：给 i2v 传 `image`（即首帧，对应 `<Picture 1>`）；给 r2v 传 `image`+`image2`（对应 `<Picture 1>`/`<Picture 2>`）；t2v 不需要图。prompt 里的 `<Picture N>` 文案由工作流自带，改 prompt 时务必保留以免首帧语义丢失。
 
+**P2 能力增强（模型清单 / 视频预览 / regenerate）**
+- `list_models` 现在会聚合 `UNETLoader` / `DiffusionLoader` / `CLIPLoader` / `VAELoader` / `LoraLoader` / `CheckpointLoaderSimple` 全部 loader 的模型名（去重），而不再只查 `CheckpointLoaderSimple`。本仓库 Flux2 / MiniMax H3 / Z-Image-Turbo 等均以 `UNETLoader`/`DiffusionLoader` 加载，之前 `list_models` 返回空、导致 `set_defaults` 校验误报"模型不存在"；现已对齐。
+- `view_image` 对视频/音频资产不再硬报错，而是返回结构化 `metadata`（`asset_url` / `mime_type` / 文件名 / 大小），并提示直接以播放器打开 URL。环境无 `ffmpeg`，暂不支持内联抽帧预览。
+- `regenerate(asset_id, param_overrides=...)` 的参数改写逻辑已泛化：提示词可改写任意 `prompt`/`text`/`positive` 输入；`seed` 同时覆盖 `seed` 与 `noise_seed`（兼容 Flux2 / MiniMax H3）；后续可继续扩展 `width`/`height`/`steps`/`cfg` 等数值参数。
+
 ### 4.1 各视频工作流节点要点
 
 **i2v / t2v 通用骨架**（以 `api_video_minimax_h3_i2v.json` 为例）：

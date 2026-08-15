@@ -19,41 +19,62 @@ class ComfyUIClient:
         """Re-fetch available models and update available_models list."""
         self.available_models = self._get_available_models()
 
+    # Loader node types whose model-name lists we want to surface. Covers the
+    # checkpoint-style loaders used across this repo (UNETLoader / DiffusionLoader
+    # for modern diffusion models, CheckpointLoaderSimple for classic SD).
+    MODEL_LOADER_TYPES = (
+        "CheckpointLoaderSimple",
+        "UNETLoader",
+        "DiffusionLoader",
+        "CLIPLoader",
+        "VAELoader",
+        "LoraLoader",
+    )
+
     def _get_available_models(self):
-        """Fetch list of available checkpoint models from ComfyUI"""
-        try:
-            response = requests.get(f"{self.base_url}/object_info/CheckpointLoaderSimple", timeout=10)
-            if response.status_code != 200:
-                logger.warning("Failed to fetch model list; using default handling")
-                return []
-            data = response.json()
-            # Safe dictionary access with proper error handling
+        """Fetch the union of model filenames across all known loader types.
+
+        The repo's workflows load models via UNETLoader / DiffusionLoader /
+        CLIPLoader rather than CheckpointLoaderSimple, so querying only the
+        latter produced an empty list and broke model validation. We now query
+        every relevant loader node type and merge (dedupe) their filename lists.
+        """
+        merged: list[str] = []
+        seen: set[str] = set()
+        for loader in self.MODEL_LOADER_TYPES:
             try:
-                checkpoint_info = data.get("CheckpointLoaderSimple", {})
-                if not isinstance(checkpoint_info, dict):
-                    logger.warning("Unexpected CheckpointLoaderSimple structure")
-                    return []
-                input_info = checkpoint_info.get("input", {})
-                if not isinstance(input_info, dict):
-                    logger.warning("Unexpected input structure")
-                    return []
-                required_info = input_info.get("required", {})
-                if not isinstance(required_info, dict):
-                    logger.warning("Unexpected required structure")
-                    return []
-                ckpt_name_info = required_info.get("ckpt_name", [])
-                if not isinstance(ckpt_name_info, list) or len(ckpt_name_info) == 0:
-                    logger.warning("No checkpoint models found in API response")
-                    return []
-                models = ckpt_name_info[0] if isinstance(ckpt_name_info[0], list) else ckpt_name_info
-                logger.info(f"Available models: {models}")
-                return models
-            except (KeyError, IndexError, TypeError) as e:
-                logger.warning(f"Unexpected API response structure: {e}")
-                return []
-        except requests.RequestException as e:
-            logger.warning(f"Error fetching models: {e}")
+                names = self._fetch_loader_model_names(loader)
+            except Exception as e:  # noqa: BLE001 - best effort per loader
+                logger.debug("Could not fetch models from %s: %s", loader, e)
+                continue
+            for name in names:
+                if name not in seen:
+                    seen.add(name)
+                    merged.append(name)
+        if merged:
+            logger.info("Available models (%d across loaders): %s", len(merged), merged[:10])
+        else:
+            logger.warning("No models discovered from any loader type")
+        return merged
+
+    def _fetch_loader_model_names(self, loader_type: str) -> list[str]:
+        """Return the list of model filenames exposed by a single loader node type."""
+        response = requests.get(f"{self.base_url}/object_info/{loader_type}", timeout=10)
+        if response.status_code != 200:
             return []
+        data = response.json()
+        info = data.get(loader_type, {})
+        if not isinstance(info, dict):
+            return []
+        required = info.get("input", {}).get("required", {})
+        if not isinstance(required, dict):
+            return []
+        # The model filename list is the first list-valued input (ckpt_name /
+        # unet_name / clip_name / vae_name / lora_name, etc.).
+        for value in required.values():
+            if isinstance(value, list) and value and isinstance(value[0], list):
+                return value[0]
+        return []
 
     def run_custom_workflow(self, workflow: Dict[str, Any], preferred_output_keys: Sequence[str] | None = None, max_attempts: int = 180, poll_interval: float = 2.0):
         """Run a ComfyUI workflow and block until completion (or timeout).

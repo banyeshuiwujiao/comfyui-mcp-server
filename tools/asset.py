@@ -84,9 +84,25 @@ def register_asset_tools(
         # Validate content type (only images supported for inline viewing)
         supported_types = ("image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif")
         if asset_record.mime_type not in supported_types:
+            # Non-image assets (video/audio): we cannot inline them, but returning
+            # a hard error is unhelpful. Surface a structured metadata block so the
+            # agent still gets the URL and can pass it to the user / a player.
             return {
-                "error": f"Asset type '{asset_record.mime_type}' not supported for inline viewing. "
-                         f"Supported types: {', '.join(supported_types)}"
+                "status": "unsupported_inline",
+                "asset_id": asset_id,
+                "asset_url": asset_url,
+                "mime_type": asset_record.mime_type,
+                "filename": asset_record.filename,
+                "subfolder": asset_record.subfolder,
+                "folder_type": asset_record.folder_type,
+                "width": asset_record.width,
+                "height": asset_record.height,
+                "bytes_size": asset_record.bytes_size,
+                "message": (
+                    f"Asset is '{asset_record.mime_type}', not an image, so it cannot be "
+                    f"inlined as a thumbnail. Open the asset_url directly in a player/browser. "
+                    f"(Inline video/audio preview requires ffmpeg, which is not available here.)"
+                ),
             }
         
         # Set conservative defaults

@@ -281,89 +281,65 @@ def register_workflow_generation_tools(
 def _update_workflow_params(workflow: dict, param_overrides: dict) -> dict:
     """
     Update workflow node inputs with parameter overrides.
-    
-    Searches through all nodes to find inputs that match parameter names
-    and updates them with override values.
-    
-    Common parameters and their typical node locations:
-    - prompt: CLIPTextEncode nodes, "text" input
-    - negative_prompt: CLIPTextEncode nodes (negative), "text" input
-    - width, height: EmptyLatentImage node, "width"/"height" inputs
-    - steps: KSampler node, "steps" input
-    - cfg: KSampler node, "cfg" input
-    - sampler_name: KSampler node, "sampler_name" input
-    - scheduler: KSampler node, "scheduler" input
-    - denoise: KSampler node, "denoise" input
-    - model: CheckpointLoaderSimple node, "ckpt_name" input
-    - tags, lyrics, seconds: Audio-specific nodes (varies by workflow)
+
+    Applies overrides by matching parameter name to the relevant node inputs.
+    Matching is intentionally broader than the old hardcoded SD-only mapping:
+    prompts match any text-bearing input (``text``/``prompt``/``positive``),
+    seeds also cover ``noise_seed`` (used by Flux2 / MiniMax H3), and numeric
+    sampler params match KSampler-style nodes regardless of exact class name.
+
+    A parameter is "applied" if at least one node input was updated.
     """
-    # Map parameter names to node search patterns
-    param_mappings = {
-        "prompt": {"class_type": "CLIPTextEncode", "input_key": "text", "is_negative": False},
-        "negative_prompt": {"class_type": "CLIPTextEncode", "input_key": "text", "is_negative": True},
-        "steps": {"class_type": "KSampler", "input_key": "steps"},
-        "cfg": {"class_type": "KSampler", "input_key": "cfg"},
-        "sampler_name": {"class_type": "KSampler", "input_key": "sampler_name"},
-        "scheduler": {"class_type": "KSampler", "input_key": "scheduler"},
-        "denoise": {"class_type": "KSampler", "input_key": "denoise"},
-        "width": {"class_type": "EmptyLatentImage", "input_key": "width"},
-        "height": {"class_type": "EmptyLatentImage", "input_key": "height"},
-        "model": {"class_type": "CheckpointLoaderSimple", "input_key": "ckpt_name"},
-        # Audio-specific (adjust based on actual node types in workflows)
-        "tags": {"class_type": None, "input_key": "tags"},  # Will search by input key
-        "lyrics": {"class_type": None, "input_key": "lyrics"},
-        "seconds": {"class_type": None, "input_key": "seconds"},
-        "lyrics_strength": {"class_type": None, "input_key": "lyrics_strength"},
+    # Parameter -> tuple of input keys to try (first present wins per node)
+    param_input_keys = {
+        "prompt": ("prompt", "text", "positive"),
+        "negative_prompt": ("negative", "text", "prompt"),
+        "steps": ("steps",),
+        "cfg": ("cfg",),
+        "sampler_name": ("sampler_name",),
+        "scheduler": ("scheduler",),
+        "denoise": ("denoise",),
+        "width": ("width",),
+        "height": ("height",),
+        "model": ("ckpt_name", "unet_name", "model_name"),
+        "seed": ("seed", "noise_seed"),
+        "tags": ("tags",),
+        "lyrics": ("lyrics",),
+        "seconds": ("seconds",),
+        "lyrics_strength": ("lyrics_strength",),
     }
-    
+
     for param_name, override_value in param_overrides.items():
-        if param_name not in param_mappings:
-            # Log warning but continue - maybe it's a valid but unknown param
+        if param_name not in param_input_keys:
             logger.warning(f"Unknown parameter '{param_name}' in regenerate, skipping")
             continue
-        
-        mapping = param_mappings[param_name]
-        target_class = mapping.get("class_type")
-        target_input = mapping["input_key"]
-        is_negative = mapping.get("is_negative", False)
-        
-        # Search workflow for matching nodes
+
+        keys = param_input_keys[param_name]
+        is_negative = (param_name == "negative_prompt")
         updated = False
         for node_id, node_data in workflow.items():
             if not isinstance(node_data, dict):
                 continue
-            
-            # Match by class_type if specified
-            if target_class and node_data.get("class_type") != target_class:
-                continue
-            
-            # Check if this node has the target input
             inputs = node_data.get("inputs", {})
-            if target_input not in inputs:
+            if not isinstance(inputs, dict):
                 continue
-            
-            # Special handling for negative prompt
-            if param_name == "negative_prompt" and is_negative:
-                # Try to identify negative CLIPTextEncode node
-                # Common patterns: node title/name contains "negative", or it's connected differently
-                # For now, update all CLIPTextEncode nodes that aren't the main prompt
-                # This is heuristic - may need workflow-specific logic
-                if "negative" in str(node_data).lower() or "neg" in str(node_id).lower():
-                    inputs[target_input] = override_value
-                    updated = True
-            elif param_name == "prompt" and not is_negative:
-                # Update main prompt (not negative)
-                if "negative" not in str(node_data).lower() and "neg" not in str(node_id).lower():
-                    inputs[target_input] = override_value
-                    updated = True
-            else:
-                # Direct parameter update
-                inputs[target_input] = override_value
-                updated = True
-        
+            # Find the first matching input key on this node
+            target_input = next((k for k in keys if k in inputs), None)
+            if target_input is None:
+                continue
+            # For negative prompt, never touch a node that looks like the main prompt
+            if is_negative:
+                blob = f"{node_data.get('class_type','')} {node_data.get('_meta',{})}".lower()
+                if "neg" not in blob and target_input == "text" and "positive" not in blob:
+                    # Likely the main prompt node; skip to avoid clobbering it
+                    if "negative" not in blob:
+                        continue
+            inputs[target_input] = override_value
+            updated = True
+
         if not updated:
             logger.warning(f"Could not find node to update parameter '{param_name}' in workflow")
-    
+
     return workflow
 
 
@@ -386,14 +362,19 @@ def _update_seed(workflow: dict, seed: Optional[int]) -> dict:
     if seed is None:
         seed = random.randint(0, 0xffffffffffffffff)
     
-    # Find and update all KSampler nodes
+    # Find and update every node that carries a seed-like input. Covers both the
+    # classic KSampler ("seed") and modern Flux2 / MiniMax H3 nodes ("noise_seed").
     for node_id, node_data in workflow.items():
         if not isinstance(node_data, dict):
             continue
-        if node_data.get("class_type") == "KSampler":
-            inputs = node_data.get("inputs", {})
+        inputs = node_data.get("inputs", {})
+        if not isinstance(inputs, dict):
+            continue
+        if "seed" in inputs:
             inputs["seed"] = seed
-    
+        if "noise_seed" in inputs:
+            inputs["noise_seed"] = seed
+
     return workflow
 
 
