@@ -187,6 +187,12 @@ except Exception as e:
 if pipeline_orchestrator is not None and publish_manager is not None:
     pipeline_orchestrator.publish_manager = publish_manager
 
+# Text-output workflows (JoyCaption STRING previews) need the detected ComfyUI
+# output root to persist a fetchable .txt asset instead of failing with
+# "No outputs matched preferred keys".
+if publish_manager is not None:
+    comfyui_client.output_root = publish_manager.config.comfyui_output_root
+
 
 # Define application context (for future use)
 class AppContext:

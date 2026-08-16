@@ -28,6 +28,9 @@ PLACEHOLDER_DESCRIPTIONS = {
     "width": "Image width in pixels. Default: 512.",
     "height": "Image height in pixels. Default: 512.",
     "model": "Checkpoint model name (e.g., 'v1-5-pruned-emaonly.ckpt', 'sd_xl_base_1.0.safetensors'). Default: 'v1-5-pruned-emaonly.ckpt'.",
+    "image": "Input image filename already present in ComfyUI's input directory.",
+    "input_dir": "Directory containing images to batch-process: absolute path, or relative to the ComfyUI process working directory (NOT relative to ComfyUI/input).",
+    "output_format": "Batch output format: 'txt', 'json' or 'both'. JSON writes captions_summary.json into the input directory.",
     "steps": "Number of sampling steps. Higher = better quality but slower. Default: 20.",
     "cfg": "Classifier-free guidance scale. Higher = more adherence to prompt. Default: 8.0.",
     "sampler_name": "Sampling method (e.g., 'euler', 'dpmpp_2m', 'ddim'). Default: 'euler'.",
@@ -44,6 +47,18 @@ PLACEHOLDER_DESCRIPTIONS = {
 DEFAULT_OUTPUT_KEYS = ("images", "image", "gifs", "gif")
 AUDIO_OUTPUT_KEYS = ("audio", "audios", "sound", "files")
 VIDEO_OUTPUT_KEYS = ("videos", "video", "mp4", "mov", "webm")
+# JoyCaption and other text-caption workflows return STRING previews and/or
+# SaveText-style file outputs; ComfyUI history exposes them as "text"/"files".
+TEXT_OUTPUT_KEYS = ("files", "text", "file")
+
+# Input keys on ComfyUI's native loader nodes whose values are checkpoint
+# filenames. A PARAM_MODEL bound to any other input (e.g. the HuggingFace
+# model id on Joy_caption_two_load) must NOT go through the checkpoint
+# availability gate.
+CHECKPOINT_MODEL_INPUT_KEYS = (
+    "unet_name", "ckpt_name", "clip_name", "vae_name",
+    "lora_name", "model_name", "diffusion_model",
+)
 
 
 class WorkflowManager:
@@ -197,6 +212,25 @@ class WorkflowManager:
         except (json.JSONDecodeError, IOError) as e:
             logger.error(f"Failed to load workflow {workflow_id}: {e}")
             return None
+
+    def model_param_targets_checkpoint_loader(self, workflow_id: str) -> bool:
+        """Whether this workflow's ``PARAM_MODEL`` feeds a ComfyUI checkpoint loader.
+
+        Custom loaders (e.g. ``Joy_caption_two_load``) take HuggingFace model
+        ids through an input named ``model``. Those must bypass the checkpoint
+        availability gate; only native loader keys like ``ckpt_name`` /
+        ``unet_name`` / ``clip_name`` mean "a file under ComfyUI/models".
+        """
+        workflow = self.load_workflow(workflow_id)
+        if not workflow:
+            return False
+        model_param = self._extract_parameters(workflow).get("model")
+        if not model_param:
+            return False
+        return any(
+            input_name in CHECKPOINT_MODEL_INPUT_KEYS
+            for _, input_name in model_param.bindings
+        )
     
     def apply_workflow_overrides(self, workflow: Dict[str, Any], workflow_id: str, overrides: Dict[str, Any], defaults_manager: Optional["DefaultsManager"] = None) -> Dict[str, Any]:
         """Apply constrained overrides to workflow based on metadata.
@@ -555,6 +589,13 @@ class WorkflowManager:
                 return AUDIO_OUTPUT_KEYS
             if "video" in class_type or "savevideo" in class_type or "videocombine" in class_type:
                 return VIDEO_OUTPUT_KEYS
+            if (
+                "joy_caption" in class_type
+                or "caption" in class_type and "save" in class_type
+                or class_type.startswith("batch_joy")
+                or class_type in ("save_text",)
+            ):
+                return TEXT_OUTPUT_KEYS
         return DEFAULT_OUTPUT_KEYS
 
     def _coerce_value(self, value: Any, annotation: type):

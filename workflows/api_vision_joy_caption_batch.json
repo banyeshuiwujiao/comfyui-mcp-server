@@ -24,5 +24,14 @@
     "_meta": {
       "title": "批量JoyCaptionTwo反推"
     }
+  },
+  "3": {
+    "inputs": {
+      "text": ["2", 0]
+    },
+    "class_type": "Joy_caption_two_output",
+    "_meta": {
+      "title": "预览批量反推结果"
+    }
   }
 }

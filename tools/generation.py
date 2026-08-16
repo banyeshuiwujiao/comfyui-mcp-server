@@ -118,18 +118,25 @@ def register_workflow_generation_tools(
                         }
 
                 # Only validate model if the workflow actually has a 'model' parameter
+                # AND that parameter feeds a native ComfyUI checkpoint loader.
+                # Custom loaders (JoyCaption HF model ids, ...) bypass this gate.
                 has_model_param = "model" in definition.parameters
-                if has_model_param:
+                checkpoint_model_gate = (
+                    has_model_param
+                    and workflow_manager.model_param_targets_checkpoint_loader(
+                        definition.workflow_id
+                    )
+                )
+                if checkpoint_model_gate:
                     provided_model = dict(bound.arguments).get("model")
                     resolved_model = defaults_manager.get_default(namespace, "model", provided_model)
 
                     if resolved_model and not defaults_manager.is_model_valid(namespace, resolved_model):
-                        is_valid, model_name, source = defaults_manager.validate_default_model(namespace)
                         available_models = list(defaults_manager._available_models_set)
                         sample_models = available_models[:5] if available_models else []
 
                         error_msg = (
-                            f"Default model '{model_name}' (from {source} defaults) not found in ComfyUI checkpoints. "
+                            f"Model '{resolved_model}' not found in ComfyUI checkpoints. "
                             f"Set a valid model via `set_defaults`, config file, or env var. "
                             f"Try `list_models` to see available checkpoints."
                         )

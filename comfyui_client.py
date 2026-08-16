@@ -5,6 +5,7 @@ import os
 import logging
 from typing import Any, Dict, Optional, Sequence
 from urllib.parse import quote
+from uuid import uuid4
 
 from asset_processor import get_image_metadata
 
@@ -15,6 +16,10 @@ class ComfyUIClient:
     def __init__(self, base_url):
         self.base_url = base_url
         self.available_models = self._get_available_models()
+        # Injected by server.py from PublishConfig auto-detection. Used to
+        # persist pure STRING node outputs (JoyCaption preview text) as files
+        # so the asset registry can serve them through /view.
+        self.output_root = None
     
     def refresh_models(self):
         """Re-fetch available models and update available_models list."""
@@ -523,7 +528,29 @@ class ComfyUIClient:
                 assets = node_output.get(key)
                 if not assets or not isinstance(assets, list):
                     continue
-                for asset in assets:
+
+                effective_assets = assets
+                if key == "text":
+                    # STRING outputs are not file-backed. Persist them into the
+                    # ComfyUI output root when no file asset already exists for
+                    # this node (JoyCaption preview vs SaveText .txt file).
+                    file_assets = [a for a in assets if isinstance(a, dict) and a.get("filename")]
+                    if not file_assets and not any(
+                        a.get("node_id") == node_id for a in collected
+                    ):
+                        text_value = next(
+                            (str(a) for a in assets if isinstance(a, str) and str(a).strip()),
+                            None,
+                        )
+                        if text_value:
+                            persisted = self._persist_text_output(
+                                text_value, node_id, workflow
+                            )
+                            if persisted:
+                                file_assets = [persisted]
+                    effective_assets = file_assets
+
+                for asset in effective_assets:
                     if not isinstance(asset, dict):
                         continue
                     filename = asset.get("filename")
@@ -583,6 +610,40 @@ class ComfyUIClient:
             base = filename[len("ComfyUI-"):]
             return base.split("_")[0] if base else filename
         return node_id
+
+    def _persist_text_output(
+        self,
+        text: str,
+        node_id: str,
+        workflow: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Persist a pure STRING node output as a .txt file under ComfyUI output.
+
+        Returns an asset-info dict compatible with ``_extract_all_assets`` or
+        None when the output root is unavailable (the string is then skipped).
+        """
+        output_root = getattr(self, "output_root", None)
+        if not output_root:
+            return None
+
+        subfolder = "text_outputs"
+        if workflow:
+            for node in workflow.values():
+                class_type = str(node.get("class_type", "")).lower() if isinstance(node, dict) else ""
+                if "joy_caption" in class_type or "caption" in class_type:
+                    subfolder = "joy_caption"
+                    break
+
+        try:
+            dest_dir = os.path.join(output_root, subfolder)
+            os.makedirs(dest_dir, exist_ok=True)
+            filename = f"text_node{node_id}_{int(time.time())}_{uuid4().hex[:6]}.txt"
+            with open(os.path.join(dest_dir, filename), "w", encoding="utf-8") as f:
+                f.write(text)
+            return {"filename": filename, "subfolder": subfolder, "type": "output"}
+        except OSError as e:
+            logger.warning("Failed to persist text output for node %s: %s", node_id, e)
+            return None
 
     # Backward-compatible alias used by older call sites / tests
     def _extract_first_asset_info(self, outputs: Dict[str, Any], preferred_output_keys: Sequence[str]) -> Dict[str, Any]:
