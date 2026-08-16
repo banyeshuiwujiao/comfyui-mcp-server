@@ -143,6 +143,106 @@ def register_character_tools(mcp: FastMCP, character_vault):
         return {"error": f"Character profile '{character_id}' not found"}
 
     @mcp.tool()
+    def import_captions_to_character_vault(
+        captions_path: str,
+        character_prefix: str = "hero",
+        display_names: Optional[Dict[str, str]] = None,
+        trigger_words: Optional[Dict[str, str]] = None,
+        extra_tags: Optional[List[str]] = None,
+        style_preset: str = "fantasy",
+    ) -> dict:
+        """Import JoyCaption batch captions into the Character Vault (flywheel link).
+
+        Reads either the raw ``captions_summary.json`` format produced by
+        ``Batch_joy_caption_two(advanced)`` (flat ``{filename: caption}``) or
+        the structured Godot format ``{"heroes": {"1001": {"file": ..., "caption": ...}}}``.
+        Each entry becomes an upserted profile:
+          - character_id = ``{character_prefix}_{id}`` (e.g. hero_1001)
+          - description = caption text (Chinese or English as provided)
+          - reference_images = [source filename] (ComfyUI input dir)
+          - trigger_words from `trigger_words` map when provided
+
+        Args:
+            captions_path: Absolute path to the captions JSON file.
+            character_prefix: ID prefix, default "hero".
+            display_names: Optional map ``{id: 中文名}`` (e.g. {"1001": "魔法学徒哈利"}).
+            trigger_words: Optional map ``{id: "1boy, blue robe, ..."}`` used as
+                           prompt-injection keywords; caption is used as description.
+            extra_tags: Extra search tags appended to ["joycaption", prefix].
+            style_preset: Vault style preset, default "fantasy".
+
+        Returns:
+            Imported character ids, count, and per-id display names.
+        """
+        import json as _json
+        from pathlib import Path as _Path
+
+        path = _Path(captions_path)
+        if not path.exists():
+            return {"error": f"Captions file not found: {captions_path}"}
+
+        try:
+            payload = _json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            return {"error": f"Failed to read captions JSON: {e}"}
+
+        display_names = display_names or {}
+        trigger_words = trigger_words or {}
+        tags = list(extra_tags or [])
+        tags.extend(["joycaption", character_prefix])
+
+        entries: Dict[str, Dict[str, str]] = {}
+        heroes = payload.get("heroes") if isinstance(payload, dict) else None
+        if isinstance(heroes, dict):
+            for hero_id, entry in heroes.items():
+                if isinstance(entry, dict):
+                    caption = entry.get("caption") or entry.get("caption_zh")
+                    if caption:
+                        entries[str(hero_id)] = {
+                            "caption": str(caption),
+                            "file": str(entry.get("file") or f"{character_prefix}_{hero_id}_sheet.png"),
+                        }
+        else:
+            for filename, caption in payload.items():
+                if not isinstance(caption, str):
+                    continue
+                stem = _Path(filename).stem
+                hero_id = stem
+                for marker in (f"{character_prefix}_", "hero_", "_sheet", "sheet_"):
+                    hero_id = hero_id.replace(marker, "")
+                hero_id = hero_id.strip("_") or stem
+                entries[hero_id] = {"caption": caption, "file": filename}
+
+        if not entries:
+            return {"error": "No caption entries parsed from JSON"}
+
+        imported = []
+        for hero_id, entry in sorted(entries.items(), key=lambda kv: kv[0]):
+            character_id = f"{character_prefix}_{hero_id}"
+            profile = character_vault.save_profile(
+                character_id=character_id,
+                display_name=display_names.get(hero_id, f"{character_prefix}_{hero_id}"),
+                description=entry["caption"],
+                trigger_words=trigger_words.get(hero_id, ""),
+                negative_trigger="blurry, lowres, wrong colors, deformed anatomy",
+                reference_images=[entry["file"]],
+                style_preset=style_preset,
+                tags=tags,
+            )
+            imported.append(character_vault.profile_to_dict(profile))
+
+        logger.info(
+            "Imported %d captions into character vault (prefix=%s)",
+            len(imported), character_prefix,
+        )
+        return {
+            "status": "imported",
+            "count": len(imported),
+            "character_ids": [p["character_id"] for p in imported],
+            "profiles": imported,
+        }
+
+    @mcp.tool()
     def apply_character_to_prompt(
         character_id: str,
         prompt: str,

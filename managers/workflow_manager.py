@@ -36,6 +36,7 @@ PLACEHOLDER_DESCRIPTIONS = {
     "language": "Caption output language, e.g. 'English' or '中文' (Chinese templates come from joy_config CAPTION_TYPE_MAP_ZH).",
     "top_p": "JoyCaption nucleus sampling top-p (0.0-1.0). Default 0.9.",
     "temperature": "JoyCaption sampling temperature (0.0-1.0). Default 0.6.",
+    "max_length": "Maximum generated token count for ComfyUI TextGenerate. Default 512.",
     "steps": "Number of sampling steps. Higher = better quality but slower. Default: 20.",
     "cfg": "Classifier-free guidance scale. Higher = more adherence to prompt. Default: 8.0.",
     "sampler_name": "Sampling method (e.g., 'euler', 'dpmpp_2m', 'ddim'). Default: 'euler'.",
@@ -537,6 +538,7 @@ class WorkflowManager:
                         "duration", "fps",  # Video-specific optional params
                         "caption_type", "caption_length", "language",  # JoyCaption choices
                         "top_p", "temperature", "output_format",  # JoyCaption sampling/batch
+                        "max_length",  # ComfyUI TextGenerate output token cap
                     }
                     is_required = (
                         param_name not in optional_params

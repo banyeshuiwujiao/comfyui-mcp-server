@@ -1,0 +1,45 @@
+{
+  "1": {
+    "inputs": {
+      "clip_name": "gemma_3_12B_it_fp4_mixed.safetensors",
+      "type": "ltxv",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载本地 Gemma3-12B-Instruct（文本生成）"
+    }
+  },
+  "2": {
+    "inputs": {
+      "clip": ["1", 0],
+      "prompt": "PARAM_TEXT",
+      "max_length": "PARAM_INT_MAX_LENGTH:512",
+      "sampling_mode": "off"
+    },
+    "class_type": "TextGenerate",
+    "_meta": {
+      "title": "Gemma 翻译/改写（中文）"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": ["2", 0],
+      "filename_prefix": "gemma_translate/zh_caption",
+      "format": "txt"
+    },
+    "class_type": "SaveText",
+    "_meta": {
+      "title": "保存中文结果"
+    }
+  },
+  "4": {
+    "inputs": {
+      "text": ["2", 0]
+    },
+    "class_type": "Joy_caption_two_output",
+    "_meta": {
+      "title": "预览中文结果"
+    }
+  }
+}
