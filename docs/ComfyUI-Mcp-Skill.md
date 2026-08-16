@@ -97,6 +97,50 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 | `api_image_z_image_turbo.json` | **Z-Image-Turbo 文生图（轻量变体）** | `57:27` 的 `text`、`57:13` 的宽高、`57:3` 的 `seed` | `output/z-image-turbo_*.png` |
 | `api_image_z_image_int8.json` | **Z-Image INT8 量化文生图**（低显存变体） | `76:67` 的 `text`、`76:69` 的 `seed` | `output/z-image-*.png` |
 | `api_wan2.1_fun_control.json` | **Wan2.1 Fun-Control 控制图生视频**（Canny 控制） | `52` 的 `image`（控制图）、`6` 的 `text`、`3` 的 `seed` | `output/wan_*.mp4` |
+| `api_vision_joy_caption_basic.json` | **JoyCaption 基础视觉反推**（图→详细描述文本） | `4` 的 `image`（输入图） | `output/joy_caption/basic_caption_*.txt` |
+| `api_vision_joy_caption_advanced.json` | **JoyCaption 高级视觉反推**（带光照/构图/美学等附加选项） | `4` 的 `image`；`5` 的 `Joy_extra_options` 各项开关 | `output/joy_caption/advanced_caption_*.txt` |
+| `api_vision_joy_caption_batch.json` | **JoyCaption 批量反推**（目录→训练用字幕 .txt） | `2` 的 `input_dir`（图片目录路径） | 各图同目录 `<原名>.txt` |
+| `api_vision_joy_caption_flux_pipeline.json` | **JoyCaption→Flux 闭环**（反推描述→Flux 按描述重绘） | `190` 的 `image`（输入图） | `output/joy_caption_flux/pipeline_*.png` + 描述 txt |
+
+### 4.1 视觉反推工作流（JoyCaptionAlpha Two 插件）
+
+> **核心价值**：本机 ComfyUI 通过 `ComfyUI_SLK_joy_caption_two`（JoyCaptionAlpha Two 的 ComfyUI 实现）获得了**视觉理解/反推能力**——大模型（Agent）可以把「看不懂」的图片喂进来，得到高质量英文描述（caption），再用于文生图、训练数据标注、或作为 Flux 重绘的提示词。这是 Agent 补齐自身「视觉缺失」的关键工具。
+>
+> **插件安装位置**：`ComfyUI/custom_nodes/ComfyUI_SLK_joy_caption_two/`（已从 `g:\ComfyUI_windows_portable\ComfyUI_SLK_joy_caption_two` 复制安装）。
+> **依赖模型**：`models/Joy_caption_two/`（clip_model.pt + image_adapter.pt + text_model/）、`models/LLM/Meta-Llama-3.1-8B-Instruct-bnb-4bit/`、`models/clip/siglip-so400m-patch14-384/`。
+
+#### 4.1.1 四个实用反推工作流
+
+| 工作流 | 场景 | MCP 暴露入参 | 调用示例（overrides） |
+|---|---|---|---|
+| `api_vision_joy_caption_basic.json` | 单图→长描述。适合「让 Agent 理解一张陌生图片的内容」 | `image` | `{"image": "photo_001.png"}` |
+| `api_vision_joy_caption_advanced.json` | 单图→带可控维度（光照/构图/美学/水印/NSFW 等 17 项开关）的精细描述 | `image` | `{"image": "art_002.png"}`（选项在 `5` 节点预置，可按需改） |
+| `api_vision_joy_caption_batch.json` | 整个目录→每张图生成训练格式字幕 `.txt`（支持触发词 `name`、前后缀、重命名） | `input_dir` | `{"input_dir": "E:/dataset/raw"}` |
+| `api_vision_joy_caption_flux_pipeline.json` | 反推→Flux 按描述重新生成图像（视觉理解与生成的闭环） | `image` | `{"image": "ref.png"}` |
+
+#### 4.1.2 Agent 调用 SOP（视觉反推）
+
+1. **确认 ComfyUI 在线**：`curl http://localhost:8188/system_stats`。
+2. **选工作流**：理解单图 → `basic`；要精细维度 → `advanced`；标数据集 → `batch`；反推后想重绘 → `flux_pipeline`。
+3. **准备输入图**：单图放到 `ComfyUI/input/` 下（批量则放整个目录），记录文件名/路径。
+4. **调用**：MCP 方式 `run_workflow(workflow_id, overrides={"image": "xxx.png"})`；或 REST 方式改 JSON 提交（见 §5）。
+5. **取结果**：`basic/advanced/flux_pipeline` 的 caption 文本经 `SaveText` 节点在 `/history/<pid>` 的 `outputs["3" 或 "3"].text` 返回，同时也落盘 `output/joy_caption/*.txt`；`batch` 直接在各图同目录写 `<原名>.txt`。
+6. **闭环用法**：把 `basic` 返回的 caption 串给 `api_image_z_image_turbo_t2i` 的 `prompt`，或用 `flux_pipeline` 一步到位重绘。
+
+#### 4.1.3 实测验证记录（2026-08-16 本机 RTX 4070 Ti SUPER 16GB）
+
+| 工作流 | 实测状态 | 端到端耗时 | 输出产物 | 评价 |
+|---|---|---|---|---|
+| `api_vision_joy_caption_basic.json` | OK | ~12s（首图含模型加载，后续 ~3s） | `basic_caption_00001.txt` 含准确描述 | 正确识别几何图形、文字、配色；SigLIP+LLM 反推质量高。 |
+| `api_vision_joy_caption_advanced.json` | OK | ~12s | `advanced_caption_00001.txt` | 附加选项生效（光照/三分法/美学质量已出现在描述中）。 |
+| `api_vision_joy_caption_batch.json` | OK | 2 图 ~25s | `red_circle.txt` + `green_triangle.txt` | Training Prompt 格式，适合直接做 LoRA/微调数据集标注。 |
+| `api_vision_joy_caption_flux_pipeline.json` | OK | ~30s | `pipeline_00001_.png` + `caption_00001.txt` | 反推描述→Flux 重绘闭环跑通；cfg=1、fp8 模型稳定。 |
+
+**兼容性修复记录**（安装时必须）：
+- 插件 `requirements.txt` 锁 `numpy==1.26.4`，但本机 `scipy 1.18` 要求 `numpy>=2.0` → 已升 `numpy` 到 `2.2.6` 修复。
+- torch 2.11 下 `SiglipVisionModel.device` 为只读，`comfy.model_patcher.ModelPatcher` 的 `model.device = x` setter 会抛 `AttributeError` → 已修改 `joy_caption_two_node.py`，改对 `JoyClipVisionModel` / `JoyImageAdapter` 用 `.to(device)` 直接管理显存，移除 ModelPatcher 包裹。
+- `peft` 需 `>=0.20.0`（transformers 5.14.1 的 `integrations/peft.py` 引用 `_maybe_shard_state_dict_for_tp`，旧版 0.12/0.18 缺失）→ 已升 `peft-0.20.0`。
+- 修改已同步回 `g:\ComfyUI_windows_portable\ComfyUI_SLK_joy_caption_two\` 源目录。
 
 ### 4.0 实测验证记录（速度 / 效果 / 稳定性）
 

@@ -1,0 +1,75 @@
+{
+  "1": {
+    "inputs": {
+      "model": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
+    },
+    "class_type": "Joy_caption_two_load",
+    "_meta": {
+      "title": "加载JoyCaptionTwo"
+    }
+  },
+  "2": {
+    "inputs": {
+      "joy_two_pipeline": ["1", 0],
+      "image": ["4", 0],
+      "extra_options": ["5", 0],
+      "caption_type": "Descriptive",
+      "caption_length": "long",
+      "name": "",
+      "custom_prompt": "",
+      "low_vram": true,
+      "top_p": 0.9,
+      "temperature": 0.6
+    },
+    "class_type": "Joy_caption_two_advanced",
+    "_meta": {
+      "title": "高级版JoyCaptionTwo"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": ["2", 0],
+      "filename_prefix": "joy_caption/advanced_caption",
+      "format": "txt"
+    },
+    "class_type": "SaveText",
+    "_meta": {
+      "title": "保存高级反推文本"
+    }
+  },
+  "4": {
+    "inputs": {
+      "image": "PARAM_IMAGE",
+      "choose file to upload": "choose file to upload"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  },
+  "5": {
+    "inputs": {
+      "If there is a person/character in the image you must refer to them as {name}.": false,
+      "Do NOT include information about people/characters that cannot be changed (like ethnicity, gender, etc), but do still include changeable attributes (like hair style).": false,
+      "Include information about lighting.": true,
+      "Include information about camera angle.": false,
+      "Include information about whether there is a watermark or not.": false,
+      "Include information about whether there are JPEG artifacts or not.": false,
+      "If it is a photo you MUST include information about what camera was likely used and details such as aperture, shutter speed, ISO, etc.": false,
+      "Do NOT include anything sexual; keep it PG.": true,
+      "Do NOT mention the image's resolution.": false,
+      "You MUST include information about the subjective aesthetic quality of the image from low to very high.": true,
+      "Include information on the image's composition style, such as leading lines, rule of thirds, or symmetry.": true,
+      "Do NOT mention any text that is in the image.": false,
+      "Specify the depth of field and whether the background is in focus or blurred.": false,
+      "If applicable, mention the likely use of artificial or natural lighting sources.": true,
+      "Do NOT use any ambiguous language.": false,
+      "Include whether the image is sfw, suggestive, or nsfw.": false,
+      "ONLY describe the most important elements of the image.": false
+    },
+    "class_type": "Joy_extra_options",
+    "_meta": {
+      "title": "JoyCaption附加选项"
+    }
+  }
+}

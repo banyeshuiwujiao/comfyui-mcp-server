@@ -1,0 +1,45 @@
+{
+  "1": {
+    "inputs": {
+      "model": "unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
+    },
+    "class_type": "Joy_caption_two_load",
+    "_meta": {
+      "title": "加载JoyCaptionTwo"
+    }
+  },
+  "2": {
+    "inputs": {
+      "joy_two_pipeline": ["1", 0],
+      "image": ["4", 0],
+      "caption_type": "Descriptive",
+      "caption_length": "long",
+      "low_vram": true
+    },
+    "class_type": "Joy_caption_two",
+    "_meta": {
+      "title": "JoyCaptionTwo反推"
+    }
+  },
+  "3": {
+    "inputs": {
+      "text": ["2", 0],
+      "filename_prefix": "joy_caption/basic_caption",
+      "format": "txt"
+    },
+    "class_type": "SaveText",
+    "_meta": {
+      "title": "保存反推文本"
+    }
+  },
+  "4": {
+    "inputs": {
+      "image": "PARAM_IMAGE",
+      "choose file to upload": "choose file to upload"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "加载图像"
+    }
+  }
+}
