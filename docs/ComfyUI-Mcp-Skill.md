@@ -276,6 +276,12 @@ python comfy_mcp_cli.py call get_asset_lineage '{"asset_id":"<t2i_asset_id>"}'
 
 **经验**：给 Godot 生成 UI 资产时优先用 `z-image-turbo`（8 步 ≈ 16s/张）；需透明通道的资产走 `t2i → remove_background(auto)` 两段式；所有产物在 Godot 侧用 manifest.json 记录 `asset_id` 与血缘，形成可追溯的数据飞轮。
 
+### 4.0.9 2026-08-16 默认模型告警清理（模型注入卫生）
+
+- **问题**：`DefaultsManager._hardcoded_defaults` 曾为 `image`/`audio` 硬编码 `v1-5-pruned-emaonly.ckpt` / `ace_step_v1_3.5b.safetensors`。这两者不是所有机器都有的 checkpoint，导致启动即打 "not found in ComfyUI checkpoints" 告警；带 `model` 参数的工作流若调用方未显式传 model，还会被注入一个不存在的模型名直接报错。
+- **修复**：删除硬编码 `model` 默认。工作流 JSON 自带模型节点，不再需要全局兜底模型；需要机器级默认时按优先级配置：`set_defaults` > `~/.config/comfy-mcp/config.json` > `COMFY_MCP_DEFAULT_{IMAGE,AUDIO,VIDEO}_MODEL`。
+- **回归测试**：新增 `tests/test_defaults_manager.py`——无配置时启动零告警且 `get_default(..., "model")` 返回 None；显式配置了缺失模型时仍按原语义告警。
+
 ### 4.1 各视频工作流节点要点
 
 **i2v / t2v 通用骨架**（以 `api_video_minimax_h3_i2v.json` 为例）：

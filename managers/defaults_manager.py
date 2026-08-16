@@ -39,7 +39,12 @@ class DefaultsManager:
                 "sampler_name": "euler",
                 "scheduler": "normal",
                 "denoise": 1.0,
-                "model": "v1-5-pruned-emaonly.ckpt",
+                # NOTE: no hardcoded "model" default. Workflow JSONs carry their own
+                # model nodes; injecting a global model name here produced startup
+                # warnings and generation errors on machines that don't have that
+                # checkpoint. Configure per-machine models via `set_defaults`,
+                # config file (~/.config/comfy-mcp/config.json) or env vars
+                # (COMFY_MCP_DEFAULT_{IMAGE,AUDIO,VIDEO}_MODEL) when needed.
                 "negative_prompt": "text, watermark",
             },
             "audio": {
@@ -50,7 +55,6 @@ class DefaultsManager:
                 "denoise": 1.0,
                 "seconds": 60,
                 "lyrics_strength": 0.99,
-                "model": "ace_step_v1_3.5b.safetensors",
             },
             "video": {
                 "width": 1280,
