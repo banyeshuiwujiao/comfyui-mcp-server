@@ -18,7 +18,7 @@ Thank you for your interest in contributing to ComfyUI MCP Server!
 3. **Start ComfyUI** (if not already running):
    ```bash
    cd <ComfyUI_dir>
-   python main.py --port 8188
+   python main.py --port 8188 --disable-auto-launch
    ```
 
 4. **Run the server:**

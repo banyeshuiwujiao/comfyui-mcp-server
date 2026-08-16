@@ -39,11 +39,20 @@
 
 ## 2. 启动 ComfyUI（如未运行）
 
-不要用 `run_*.bat`（会卡在 `pause` 等待按键）。直接用嵌入式 Python 起：
+不要用 `run_*.bat`（会卡在 `pause` 等待按键），也不要用带 `--windows-standalone-build`
+而不带 `--disable-auto-launch` 的裸命令——standalone 模式会隐式 `--auto-launch` 弹浏览器。
+Agent 只需要 HTTP 8188，直接使用仓库内置的无弹窗启动脚本：
 
 ```powershell
-cd g:\ComfyUI_windows_portable\ComfyUI
-& g:\ComfyUI_windows_portable\python_embeded\python.exe main.py --windows-standalone-build --listen
+cd g:\ComfyUI_windows_portable\comfyui-mcp-server
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\start_comfyui_agent.ps1
+```
+
+等价命令（不弹 WebUI）：
+
+```powershell
+& g:\ComfyUI_windows_portable\python_embeded\python.exe -s g:\ComfyUI_windows_portable\ComfyUI\main.py `
+  --windows-standalone-build --listen --disable-auto-launch
 ```
 
 验证是否就绪：
@@ -141,6 +150,29 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 - torch 2.11 下 `SiglipVisionModel.device` 为只读，`comfy.model_patcher.ModelPatcher` 的 `model.device = x` setter 会抛 `AttributeError` → 已修改 `joy_caption_two_node.py`，改对 `JoyClipVisionModel` / `JoyImageAdapter` 用 `.to(device)` 直接管理显存，移除 ModelPatcher 包裹。
 - `peft` 需 `>=0.20.0`（transformers 5.14.1 的 `integrations/peft.py` 引用 `_maybe_shard_state_dict_for_tp`，旧版 0.12/0.18 缺失）→ 已升 `peft-0.20.0`。
 - 修改已同步回 `g:\ComfyUI_windows_portable\ComfyUI_SLK_joy_caption_two\` 源目录。
+
+#### 4.1.4 中文输出与底座模型边界（重要）
+
+- **不能直接把 `models/text_encoders` 里的 Qwen/Gemma 换进 JoyCaption**：JoyCaption 的图像适配器
+  （image_adapter.pt）与文本投影、`<|image_start|>` 等特殊 token 都是按 **Llama-3.1-8B** 的
+  hidden size/tokenizer 训练的；Qwen/Gemma 架构、hidden size、tokenizer 均不同，换底座会直接
+  shape/token 不匹配。那些 `qwen_*.safetensors` 也是 ComfyUI 重打包的 **text encoder 格式**，
+  不是可被 `Joy_caption_two_load` 加载的 HF 模型目录。
+- **保证中文的正式路线已落地**：JoyCaption 先出英文 caption（质量稳定），再调
+  `api_text_gemma_translate_zh`——ComfyUI 原生 `TextGenerate` + `CLIPLoader(type=ltxv)`
+  加载**本机已有** `gemma_3_12B_it_fp4_mixed.safetensors`，零新模型下载、输出稳定简体中文。
+  8 英雄中文打标与 CharacterVault 导入即走此链路（见 §4.1.5）。
+- 若仍想 JoyCaption 原生中文，唯一兼容方向是找 **Llama-3.1-8B 同架构的中文指令微调模型**
+  （另需 ~8GB 下载），当前未采用。
+
+#### 4.1.5 中文打标 → CharacterVault 标准链路
+
+```text
+api_vision_joy_caption_batch (English, output_format=json)
+  -> api_text_gemma_translate_zh (本地 Gemma，逐条/批量翻译)
+  -> import_captions_to_character_vault (display_names/trigger_words/tags)
+  -> apply_character_to_prompt (后续生成自动注入角色一致性关键词)
+```
 
 ### 4.0 实测验证记录（速度 / 效果 / 稳定性）
 

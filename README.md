@@ -22,11 +22,21 @@ pip install -r requirements.txt
 
 ### 2) Start ComfyUI
 
-Make sure ComfyUI is installed and running locally.
+Make sure ComfyUI is installed and running locally. For agent use, disable the
+browser auto-launch (`--windows-standalone-build` implies `--auto-launch` on
+the Windows portable build; pass `--disable-auto-launch` to keep it headless
+for the agent):
 
 ```bash
 cd <ComfyUI_dir>
-python main.py --port 8188
+python main.py --port 8188 --disable-auto-launch
+```
+
+Windows portable convenience wrapper (no WebUI popup):
+
+```powershell
+cd <repo>/comfyui-mcp-server
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\start_comfyui_agent.ps1
 ```
 
 ### 3) Run the MCP server

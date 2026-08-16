@@ -33,7 +33,7 @@ PLACEHOLDER_DESCRIPTIONS = {
     "output_format": "Batch output format: 'txt', 'json' or 'both'. JSON writes captions_summary.json into the input directory.",
     "caption_type": "JoyCaption caption style, e.g. 'Descriptive', 'Training Prompt', 'Booru tag list' or 'Art Critic'.",
     "caption_length": "JoyCaption caption length: 'any', an adjective ('short'/'long') or a word-count number like '80'.",
-    "language": "Caption output language, e.g. 'English' or '中文' (Chinese templates come from joy_config CAPTION_TYPE_MAP_ZH).",
+    "language": "Caption output language, 'English' or '中文'. Note: the Llama3.1-8B JoyCaption base often still answers in English even with Chinese templates; for guaranteed Simplified Chinese, caption in English first and translate with api_text_gemma_translate_zh.",
     "top_p": "JoyCaption nucleus sampling top-p (0.0-1.0). Default 0.9.",
     "temperature": "JoyCaption sampling temperature (0.0-1.0). Default 0.6.",
     "max_length": "Maximum generated token count for ComfyUI TextGenerate. Default 512.",
