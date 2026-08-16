@@ -297,8 +297,13 @@ class PipelineOrchestrator:
             )
 
             base_stem = rec.filename.rsplit(".", 1)[0]
+            out_filename = f"transparent_{base_stem}.png"
+            from asset_processor import persist_processed_bytes
+
+            if not persist_processed_bytes(out_filename, trans_bytes, rec.subfolder):
+                raise ValueError("ComfyUI output root not configured; could not persist matting result")
             new_rec = self.asset_registry.register_asset(
-                filename=f"transparent_{base_stem}.png",
+                filename=out_filename,
                 subfolder=rec.subfolder,
                 folder_type=rec.folder_type,
                 workflow_id="remove_background",
@@ -364,8 +369,13 @@ class PipelineOrchestrator:
 
             fmt_ext = params.get("format", "png").lower()
             base_stem = rec.filename.rsplit(".", 1)[0]
+            out_filename = f"spritesheet_{base_stem}.{fmt_ext}"
+            from asset_processor import persist_processed_bytes
+
+            if not persist_processed_bytes(out_filename, atlas_bytes, rec.subfolder):
+                raise ValueError("ComfyUI output root not configured; could not persist sprite sheet")
             new_rec = self.asset_registry.register_asset(
-                filename=f"spritesheet_{base_stem}.{fmt_ext}",
+                filename=out_filename,
                 subfolder=rec.subfolder,
                 folder_type=rec.folder_type,
                 workflow_id="generate_sprite_sheet",

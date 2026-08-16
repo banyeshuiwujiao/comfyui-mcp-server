@@ -16,13 +16,14 @@ from asset_processor import (
     build_sprite_sheet,
     extract_video_keyframes,
     fetch_asset_bytes,
+    persist_processed_bytes,
     remove_image_background,
 )
 
 logger = logging.getLogger("MCP_Server")
 
 
-def register_pipeline_tools(mcp: FastMCP, asset_registry, comfyui_client, pipeline_orchestrator=None):
+def register_pipeline_tools(mcp: FastMCP, asset_registry, comfyui_client, pipeline_orchestrator=None, publish_manager=None):
     """Register game & web post-processing and composite pipeline tools with the MCP server."""
 
     @mcp.tool()
@@ -75,6 +76,12 @@ def register_pipeline_tools(mcp: FastMCP, asset_registry, comfyui_client, pipeli
 
         base_stem = asset_record.filename.rsplit(".", 1)[0]
         out_filename = f"transparent_{base_stem}.png"
+
+        # Persist the processed bytes into the ComfyUI output root so the
+        # registered /view asset_url resolves (registered metadata alone is not a file).
+        configured_root = getattr(getattr(publish_manager, "config", None), "comfyui_output_root", None)
+        if not persist_processed_bytes(out_filename, transparent_bytes, asset_record.subfolder, configured_root):
+            return {"error": "ComfyUI output root not configured; processed asset could not be persisted (set COMFYUI_OUTPUT_ROOT)"}
 
         # Register in asset registry with lineage
         new_record = asset_registry.register_asset(
@@ -191,6 +198,11 @@ def register_pipeline_tools(mcp: FastMCP, asset_registry, comfyui_client, pipeli
         fmt_ext = "png" if format.lower() == "png" else "webp"
         base_stem = asset_record.filename.rsplit(".", 1)[0]
         out_filename = f"spritesheet_{base_stem}.{fmt_ext}"
+
+        # Persist bytes first so the registered asset_url resolves.
+        configured_root = getattr(getattr(publish_manager, "config", None), "comfyui_output_root", None)
+        if not persist_processed_bytes(out_filename, atlas_bytes, asset_record.subfolder, configured_root):
+            return {"error": "ComfyUI output root not configured; sprite sheet could not be persisted (set COMFYUI_OUTPUT_ROOT)"}
 
         # Register in asset registry
         new_record = asset_registry.register_asset(

@@ -281,6 +281,15 @@ def validate_comfyui_output_root(path: Path) -> bool:
     # Check for output/ or temp/ subdirectories (ComfyUI structure)
     if (path / "output").exists() or (path / "temp").exists():
         return True
+
+    # ComfyUI's own output root contains type subfolders (video/audio) and a
+    # marker file in portable installs. A folder with a video/audio subdir is
+    # overwhelmingly a ComfyUI output root even when it currently holds few
+    # loose images.
+    if (path / "video").is_dir() or (path / "audio").is_dir():
+        return True
+    if (path / "_output_images_will_be_put_here").exists():
+        return True
     
     # Lenient check: if directory has image files, it's probably ComfyUI output
     # (ComfyUI typically outputs images directly to the output directory)
@@ -349,6 +358,9 @@ def detect_comfyui_output_root(project_root: Path, comfyui_url: str = "http://lo
     candidates.append(project_root / "comfyui-desktop" / "output")
     candidates.append(project_root.parent / "comfyui-desktop" / "output")
     candidates.append(project_root / "ComfyUI" / "output")
+    # Windows portable installs put ComfyUI next to the MCP server:
+    #   <root>/comfyui-mcp-server  +  <root>/ComfyUI/output
+    candidates.append(project_root.parent / "ComfyUI" / "output")
     
     # User home (common for desktop installs)
     candidates.append(Path.home() / "comfyui-desktop" / "output")

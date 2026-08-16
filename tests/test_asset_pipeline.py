@@ -15,6 +15,18 @@ from managers.asset_registry import AssetRegistry
 from tools.pipeline import register_pipeline_tools
 
 
+@pytest.fixture(autouse=True)
+def patch_processed_persistence(tmp_path):
+    """Isolate processed-asset persistence from the real ComfyUI output root."""
+    def fake_persist(filename, payload, subfolder="", output_root=None):
+        target = tmp_path / filename
+        target.write_bytes(payload)
+        return target
+
+    with patch("tools.pipeline.persist_processed_bytes", side_effect=fake_persist):
+        yield
+
+
 # ---------------------------------------------------------------------------
 # Test Image Helpers
 # ---------------------------------------------------------------------------

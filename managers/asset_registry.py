@@ -48,6 +48,9 @@ class AssetRegistry:
             if db_env:
                 self.db_path = db_env
             else:
+                # Library default stays in-memory so unit tests remain isolated;
+                # the server explicitly passes the persistent data/assets.db
+                # path (docs: data/assets.db, lineage survives restarts).
                 self.db_path = ":memory:"
         else:
             self.db_path = db_path

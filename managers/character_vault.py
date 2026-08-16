@@ -42,7 +42,12 @@ class CharacterVault:
 
         if db_path is None:
             db_env = os.getenv("COMFY_MCP_DB_PATH")
-            self.db_path = db_env if db_env else ":memory:"
+            if db_env:
+                self.db_path = db_env
+            else:
+                # Library default stays in-memory for test isolation; the server
+                # passes the shared persistent data/assets.db explicitly.
+                self.db_path = ":memory:"
         else:
             self.db_path = db_path
 

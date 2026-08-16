@@ -250,6 +250,32 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
   - `character_sheet_prompt`：针对多视角角色设定表调优；
   - `music_generation_prompt`：针对 AceStep 音乐标签与结构化歌词调优。
 
+### 4.0.8 2026-08-16 OneQi Godot 表现层实战迭代（数据飞轮落地）
+
+本轮把 MCP 直接用于 `ET.Client` Godot 表现层（16:9 背景、QTE 特效、透明抠图、血缘检索），并修复了 6 项真实缺陷：
+
+1. **输出根目录自动探测修复**：便携版布局 `comfyui-mcp-server/` 与 `ComfyUI/output` 同级，原候选表漏检 → 新增 `project_root.parent/ComfyUI/output`；`validate_comfyui_output_root` 放宽为接受 `video/audio` 子目录与输出标记文件。修复后启动日志：`Auto-detected ComfyUI output root: G:\ComfyUI_windows_portable\ComfyUI\output`。
+2. **资产血缘持久化**：`server.py` 显式给 `AssetRegistry` 传 `data/assets.db`（库默认保持 `:memory:` 供单测隔离）。重启后 `search_assets` / `get_asset_lineage` 数据不再丢失。
+3. **`fetch_asset_bytes` 对象化**：原实现只接受 URL 字符串，而 `remove_background`/`generate_sprite_sheet` 传的是 `AssetRecord` 对象 → 报 `No connection adapters were found for "AssetRecord(...)"`。现已支持两种形态，按 `filename/subfolder/folder_type` 拼 `/view` URL。
+4. **后处理产物落盘**：matting / sprite-sheet 的字节原先只登记元数据、从不写盘，`asset_url` 悬空（`/view` 404）。新增 `persist_processed_bytes`，工具与 `run_pipeline` 步骤在登记前先写入 ComfyUI output 根。
+5. **workflow 参数化补齐**：`workflows/api_utility_z_image_turbo_2k_upscaler.json` 补上 docs 已宣称的 `PARAM_IMAGE/PARAM_PROMPT`；`api_image_z_image_turbo_t2i.json` 新增 `PARAM_INT_WIDTH/PARAM_INT_HEIGHT`（实测 1024×576 直接可用）。
+6. **新增 `comfy_mcp_cli.py`**：无 SDK 依赖的 streamable-http MCP CLI——`tools` / `call <tool> <json|@file>` / `read <uri>` / `prompts`，SSE 自动解析。脚本与 AI Agent 都可直接驱动 MCP。
+
+**Godot 表现层实战调用样例**（本仓库 `Config/mcp_gen_logs/` 有完整回包）：
+
+```powershell
+# 16:9 UI 背景（新 width/height 参数）
+python comfy_mcp_cli.py call api_image_z_image_turbo_t2i '{"prompt":"dark fantasy arena background ...","width":1024,"height":576}'
+
+# 特效图抠透明底（先 t2i 拿到 asset_id，再抠图，产物可直落 Resources/Fx/）
+python comfy_mcp_cli.py call remove_background '{"asset_id":"<t2i_asset_id>","mode":"auto"}'
+
+# 血缘检索（SQLite 持久化，跨重启）
+python comfy_mcp_cli.py call get_asset_lineage '{"asset_id":"<t2i_asset_id>"}'
+```
+
+**经验**：给 Godot 生成 UI 资产时优先用 `z-image-turbo`（8 步 ≈ 16s/张）；需透明通道的资产走 `t2i → remove_background(auto)` 两段式；所有产物在 Godot 侧用 manifest.json 记录 `asset_id` 与血缘，形成可追溯的数据飞轮。
+
 ### 4.1 各视频工作流节点要点
 
 **i2v / t2v 通用骨架**（以 `api_video_minimax_h3_i2v.json` 为例）：

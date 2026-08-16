@@ -20,6 +20,18 @@ def create_synthetic_png() -> bytes:
     return buf.getvalue()
 
 
+@pytest.fixture(autouse=True)
+def patch_processed_persistence(tmp_path):
+    """Post-processing persistence writes into tmp_path; production detects the real output root."""
+    def fake_persist(filename, payload, subfolder="", output_root=None):
+        target = tmp_path / filename
+        target.write_bytes(payload)
+        return target
+
+    with patch("asset_processor.persist_processed_bytes", side_effect=fake_persist):
+        yield
+
+
 @pytest.fixture
 def asset_registry():
     return AssetRegistry(ttl_hours=24, db_path=":memory:")

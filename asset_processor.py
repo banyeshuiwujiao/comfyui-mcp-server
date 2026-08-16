@@ -30,6 +30,7 @@ except ImportError:
     logging.debug("OpenCV not available.")
 
 import re
+from pathlib import Path
 
 try:
     import numpy as np
@@ -51,14 +52,66 @@ logger = logging.getLogger("AssetProcessor")
 _preview_cache: Dict[str, "EncodedImage"] = {}
 
 
-def fetch_asset_bytes(asset_url: str, timeout: int = 30) -> bytes:
-    """Fetch asset bytes from ComfyUI /view endpoint"""
+def persist_processed_bytes(
+    filename: str,
+    payload: bytes,
+    subfolder: str = "",
+    output_root: Optional[Union[str, Path]] = None,
+) -> Optional[Path]:
+    """Persist bytes produced by post-processing (matting / sprite sheets) into the
+    ComfyUI output root so the registered ``asset_url`` (``/view?...``) actually
+    resolves. Returns the written path, or None when no output root can be found.
+    """
+    if not output_root:
+        try:
+            from managers.publish_manager import detect_comfyui_output_root
+
+            output_root, _ = detect_comfyui_output_root(Path.cwd())
+        except Exception:
+            output_root = None
+    if not output_root:
+        logger.error(
+            f"persist_processed_bytes: no ComfyUI output root available for {filename}; "
+            "set COMFYUI_OUTPUT_ROOT or call set_comfyui_output_root"
+        )
+        return None
+
+    target_dir = Path(output_root) / (subfolder or "")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / filename
+    target_path.write_bytes(payload)
+    logger.info(f"Persisted processed asset to {target_path} ({len(payload)} bytes)")
+    return target_path
+
+
+def fetch_asset_bytes(asset_source: Any, base_url: Optional[str] = None, timeout: int = 30) -> bytes:
+    """Fetch asset bytes from ComfyUI.
+
+    ``asset_source`` may be either a plain URL string (ComfyUI ``/view`` URL) or
+    an AssetRecord-like object (``filename``/``subfolder``/``folder_type``
+    attributes). For the object form, the ComfyUI ``/view`` URL is built from
+    ``base_url`` (default ``http://localhost:8188``).
+    """
+    if isinstance(asset_source, str):
+        url = asset_source
+    else:
+        filename = getattr(asset_source, "filename", None)
+        if not filename:
+            raise ValueError("Asset source must be a URL string or an AssetRecord with a filename")
+        from urllib.parse import quote
+
+        subfolder = getattr(asset_source, "subfolder", "") or ""
+        folder_type = getattr(asset_source, "folder_type", "output") or "output"
+        url = (
+            f"{base_url or 'http://localhost:8188'}/view"
+            f"?filename={quote(str(filename))}&subfolder={quote(str(subfolder))}&type={quote(str(folder_type))}"
+        )
     try:
-        response = requests.get(asset_url, timeout=timeout)
+        response = requests.get(url, timeout=timeout)
         response.raise_for_status()
         return response.content
     except requests.RequestException as e:
-        logger.error(f"Failed to fetch asset from {asset_url}: {e}")
+        logger.error(f"Failed to fetch asset from {url}: {e}")
         raise
 
 

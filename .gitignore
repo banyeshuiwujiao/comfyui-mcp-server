@@ -6,6 +6,7 @@ archive/
 # Runtime logs and data
 mcp_server.err
 mcp_server.log
+tests/*.log
 data/*.db
 data/*.db-wal
 data/*.db-shm

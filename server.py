@@ -142,7 +142,11 @@ comfyui_client = ComfyUIClient(COMFYUI_URL)
 workflow_manager = WorkflowManager(WORKFLOW_DIR)
 gpu_guard = GpuGuard(COMFYUI_URL)
 defaults_manager = DefaultsManager(comfyui_client)
-asset_registry = AssetRegistry(ttl_hours=ASSET_TTL_HOURS, comfyui_base_url=COMFYUI_URL)
+
+# Persistent asset DB: docs promise data/assets.db with lineage surviving restarts.
+DATA_DIR = Path(__file__).resolve().parent / "data"
+ASSET_DB_PATH = str(DATA_DIR / "assets.db")
+asset_registry = AssetRegistry(ttl_hours=ASSET_TTL_HOURS, comfyui_base_url=COMFYUI_URL, db_path=ASSET_DB_PATH)
 error_diagnoser = ErrorDiagnoser(comfyui_client, defaults_manager)
 character_vault = CharacterVault(db_path=asset_registry.db_path)
 pipeline_orchestrator = PipelineOrchestrator(
@@ -227,7 +231,7 @@ register_mcp_resources(mcp, comfyui_client, asset_registry, workflow_manager, gp
 register_character_tools(mcp, character_vault)
 
 # Register game/web asset pipeline tools (remove_background & generate_sprite_sheet & run_pipeline)
-register_pipeline_tools(mcp, asset_registry, comfyui_client, pipeline_orchestrator)
+register_pipeline_tools(mcp, asset_registry, comfyui_client, pipeline_orchestrator, publish_manager)
 
 if __name__ == "__main__":
     # Check if running as MCP command (stdio) or standalone (streamable-http)
