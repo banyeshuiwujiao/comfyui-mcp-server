@@ -146,11 +146,16 @@ def register_workflow_tools(
         try:
             # GPU pressure guard: refuse admission under sustained saturation
             if gpu_guard is not None:
-                admission = gpu_guard.check_admission()
+                output_preferences = workflow_manager._guess_output_preferences(workflow)
+                heavy = output_preferences in (("videos", "video", "mp4", "mov", "webm"),
+                                               ("audio", "audios", "sound", "files")) \
+                    or "2512" in workflow_id
+                admission = gpu_guard.check_admission(heavy=heavy)
                 if not admission["allowed"]:
                     return {
                         "error": admission["reason"],
                         "gpu_util": admission["gpu_util"],
+                        "vram_free_gb": admission.get("vram_free_gb"),
                         "pending": admission["pending"],
                         "suggestion": "Call interrupt()/clear_queue() or wait, then retry.",
                     }
@@ -215,13 +220,18 @@ def register_workflow_tools(
             )
 
             # Register asset and build response
+            provenance = {}
+            workflow_hash = getattr(workflow_manager, "get_workflow_file_hash", None)
+            if callable(workflow_hash):
+                provenance["workflow_hash"] = workflow_hash(workflow_id)
             response = register_and_build_response(
                 result,
                 workflow_id,
                 asset_registry,
                 tool_name=None,
                 return_inline_preview=return_inline_preview,
-                session_id=None
+                session_id=None,
+                metadata=provenance or None,
             )
 
             # Include override report so the agent can see what was applied/dropped

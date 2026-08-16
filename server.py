@@ -158,7 +158,6 @@ pipeline_orchestrator = PipelineOrchestrator(
     error_diagnoser=error_diagnoser,
     gpu_guard=gpu_guard,
 )
-
 # Publish manager (always initialized, uses auto-detection)
 try:
     publish_config = PublishConfig(
@@ -181,6 +180,12 @@ except Exception as e:
         publish_manager = PublishManager(publish_config)
     except Exception:
         publish_manager = None
+
+# Orchestrator post-processing steps (remove_background / generate_sprite_sheet)
+# persist bytes into the same output root the publish tools use, so pipeline
+# steps never fall back to a different auto-detection boundary.
+if pipeline_orchestrator is not None and publish_manager is not None:
+    pipeline_orchestrator.publish_manager = publish_manager
 
 
 # Define application context (for future use)

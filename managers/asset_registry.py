@@ -213,7 +213,30 @@ class AssetRegistry:
             # Check if asset already exists in memory or SQLite
             existing = self.get_asset_by_identity(filename, subfolder, folder_type)
             if existing:
-                # Update existing record if needed
+                # Deterministic post-processing names (transparent_*/spritesheet_*)
+                # legitimately collide with a previous run. Refresh every
+                # content-bearing field so lineage/prompt/seed/dimensions always
+                # describe the *latest* bytes served by /view, not the first run.
+                if prompt_id:
+                    existing.prompt_id = prompt_id
+                if mime_type:
+                    existing.mime_type = mime_type
+                if width is not None:
+                    existing.width = width
+                if height is not None:
+                    existing.height = height
+                if bytes_size is not None:
+                    existing.bytes_size = bytes_size
+                if prompt is not None:
+                    existing.prompt = prompt
+                if negative_prompt is not None:
+                    existing.negative_prompt = negative_prompt
+                if seed is not None:
+                    existing.seed = seed
+                if tags is not None:
+                    existing.tags = tags
+                if metadata:
+                    existing.metadata = {**(existing.metadata or {}), **metadata}
                 if comfy_history is not None:
                     existing.comfy_history = comfy_history
                 if submitted_workflow is not None:
@@ -222,6 +245,8 @@ class AssetRegistry:
                     existing.parent_asset_id = parent_asset_id
                 if generation_type is not None:
                     existing.generation_type = generation_type
+                if session_id is not None:
+                    existing.session_id = session_id
                 self._save_to_db(existing)
                 return existing
 

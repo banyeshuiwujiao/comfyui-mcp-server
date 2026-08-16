@@ -16,6 +16,15 @@ from tools.helpers import register_and_build_response
 
 logger = logging.getLogger("MCP_Server__pipeline_orchestrator")
 
+# Legacy tool-name aliases mapped to real workflow ids shipped in workflows/.
+# The historical `generate_image` / `generate_song` / `generate_video` ids are
+# kept as recipes documentation language, but execution must resolve to files.
+WORKFLOW_ALIASES = {
+    "generate_image": "api_image_z_image_turbo_t2i",
+    "generate_song": "api_audio_minimax_music_3",
+    "generate_video": "api_video_minimax_h3_t2v",
+}
+
 # Standard pre-packaged pipeline recipes
 PIPELINE_RECIPES: List[Dict[str, Any]] = [
     {
@@ -32,7 +41,7 @@ PIPELINE_RECIPES: List[Dict[str, Any]] = [
         "name": "Transparent Sticker / Game Asset Extraction",
         "description": "Generate subject on clean background and extract transparent RGBA PNG.",
         "steps": [
-            {"step_name": "generate_subject", "tool": "generate_image", "params": {"prompt": "<your_prompt>, solid white background"}},
+            {"step_name": "generate_subject", "tool": "api_image_z_image_turbo_t2i", "params": {"prompt": "<your_prompt>, solid white background"}},
             {"step_name": "matting", "tool": "remove_background", "input_from": "previous", "params": {"mode": "auto"}}
         ]
     },
@@ -41,7 +50,7 @@ PIPELINE_RECIPES: List[Dict[str, Any]] = [
         "name": "Character Action Loop to Sprite Sheet",
         "description": "Generate character, animate into an action loop, and package into a game engine texture atlas.",
         "steps": [
-            {"step_name": "character_portrait", "tool": "generate_image", "params": {"prompt": "<your_prompt>"}},
+            {"step_name": "character_portrait", "tool": "api_image_z_image_turbo_t2i", "params": {"prompt": "<your_prompt>"}},
             {"step_name": "animate_i2v", "tool": "api_video_minimax_h3_i2v", "input_from": "previous", "params": {"prompt": "<Picture 1> walking forward animation loop"}},
             {"step_name": "atlas_pack", "tool": "generate_sprite_sheet", "input_from": "previous", "params": {"frame_count": 8, "columns": 4, "remove_bg": True}}
         ]
@@ -51,7 +60,7 @@ PIPELINE_RECIPES: List[Dict[str, Any]] = [
         "name": "Character Multiview Sheet",
         "description": "Generate reference character and produce 6-angle views using Qwen multiview workflow.",
         "steps": [
-            {"step_name": "reference_view", "tool": "generate_image", "params": {"prompt": "<your_prompt>"}},
+            {"step_name": "reference_view", "tool": "api_image_z_image_turbo_t2i", "params": {"prompt": "<your_prompt>"}},
             {"step_name": "multiview_angles", "tool": "api_qwen_image_edit_2511_1_click_multiple_character_angles-v1.0", "input_from": "previous", "params": {"prompt": "front view, side view, back view, 3/4 view"}}
         ]
     }
@@ -70,6 +79,7 @@ class PipelineOrchestrator:
         character_vault=None,
         error_diagnoser=None,
         gpu_guard=None,
+        publish_manager=None,
     ):
         self.comfyui_client = comfyui_client
         self.asset_registry = asset_registry
@@ -78,6 +88,7 @@ class PipelineOrchestrator:
         self.character_vault = character_vault
         self.error_diagnoser = error_diagnoser
         self.gpu_guard = gpu_guard
+        self.publish_manager = publish_manager
 
     def list_recipes(self) -> List[Dict[str, Any]]:
         """Return available pre-configured pipeline recipes."""
@@ -192,11 +203,15 @@ class PipelineOrchestrator:
                 logger.error(f"Pipeline '{pipeline_label}' step #{step_idx} ({step_name}) raised exception: {e}")
                 diag = None
                 if self.error_diagnoser:
-                    diag = self.error_diagnoser.diagnose_error(
-                        error_message=str(e),
-                        history_prompt_id=None,
-                        submitted_params=step_params,
-                    )
+                    try:
+                        diag = self.error_diagnoser.diagnose(
+                            error=str(e),
+                            workflow=None,
+                            params=step_params,
+                        )
+                    except Exception as diag_exc:  # noqa: BLE001 - diagnosis must never mask the real failure
+                        logger.warning("Error diagnosis failed for pipeline step: %s", diag_exc)
+                        diag = {"error": f"Diagnosis unavailable: {diag_exc}"}
                 return {
                     "status": "failed",
                     "pipeline_name": pipeline_label,
@@ -300,7 +315,8 @@ class PipelineOrchestrator:
             out_filename = f"transparent_{base_stem}.png"
             from asset_processor import persist_processed_bytes
 
-            if not persist_processed_bytes(out_filename, trans_bytes, rec.subfolder):
+            output_root = getattr(getattr(self.publish_manager, "config", None), "comfyui_output_root", None)
+            if not persist_processed_bytes(out_filename, trans_bytes, rec.subfolder, output_root):
                 raise ValueError("ComfyUI output root not configured; could not persist matting result")
             new_rec = self.asset_registry.register_asset(
                 filename=out_filename,
@@ -372,7 +388,8 @@ class PipelineOrchestrator:
             out_filename = f"spritesheet_{base_stem}.{fmt_ext}"
             from asset_processor import persist_processed_bytes
 
-            if not persist_processed_bytes(out_filename, atlas_bytes, rec.subfolder):
+            output_root = getattr(getattr(self.publish_manager, "config", None), "comfyui_output_root", None)
+            if not persist_processed_bytes(out_filename, atlas_bytes, rec.subfolder, output_root):
                 raise ValueError("ComfyUI output root not configured; could not persist sprite sheet")
             new_rec = self.asset_registry.register_asset(
                 filename=out_filename,
@@ -400,21 +417,33 @@ class PipelineOrchestrator:
 
         # 3. Workflows in WorkflowManager
         wf_id = tool_identifier
-        workflow_data = self.workflow_manager.get_workflow(wf_id)
-        if not workflow_data:
-            # Fallback check if it's generate_image / generate_song alias
-            if wf_id == "generate_image":
-                wf_id = "api_image_flux2_text_to_image_9b" if "api_image_flux2_text_to_image_9b" in self.workflow_manager.tool_definitions else "generate_image"
-                workflow_data = self.workflow_manager.get_workflow(wf_id)
-            elif wf_id == "generate_song":
-                wf_id = "api_audio_ace_step1_5_xl_sft" if "api_audio_ace_step1_5_xl_sft" in self.workflow_manager.tool_definitions else "generate_song"
-                workflow_data = self.workflow_manager.get_workflow(wf_id)
+        workflow_data = self.workflow_manager.load_workflow(wf_id)
+        if not workflow_data and wf_id in WORKFLOW_ALIASES:
+            wf_id = WORKFLOW_ALIASES[wf_id]
+            workflow_data = self.workflow_manager.load_workflow(wf_id)
 
         if not workflow_data:
             raise ValueError(f"Workflow or tool '{tool_identifier}' not found in registry")
 
-        # Apply overrides to workflow
-        rendered_workflow = self.workflow_manager.apply_workflow_overrides(wf_id, params)
+        # GPU pressure guard (the orchestrator submits directly via ComfyUIClient,
+        # bypassing the per-tool wrappers, so it must check admission itself).
+        if self.gpu_guard is not None:
+            output_preferences = self.workflow_manager._guess_output_preferences(workflow_data)
+            heavy = output_preferences != ("images", "image", "gifs", "gif") or "2512" in wf_id
+            admission = self.gpu_guard.check_admission(heavy=heavy)
+            if not admission["allowed"]:
+                return {
+                    "error": admission["reason"],
+                    "gpu_util": admission["gpu_util"],
+                    "pending": admission["pending"],
+                    "suggestion": "Call interrupt()/clear_queue() or wait, then retry.",
+                }
+
+        # Apply overrides to workflow (correct 4-arg signature).
+        rendered_workflow = self.workflow_manager.apply_workflow_overrides(
+            workflow_data, wf_id, params, self.defaults_manager
+        )
+        rendered_workflow.pop("__override_report__", None)
 
         # Execute via ComfyUIClient
         timeout = params.get("timeout", 360)
@@ -424,6 +453,10 @@ class PipelineOrchestrator:
         )
 
         parent_asset_id = params.get("parent_asset_id")
+        provenance = {}
+        workflow_hash = getattr(self.workflow_manager, "get_workflow_file_hash", None)
+        if callable(workflow_hash):
+            provenance["workflow_hash"] = workflow_hash(wf_id)
         return register_and_build_response(
             result=result,
             workflow_id=wf_id,
@@ -434,4 +467,5 @@ class PipelineOrchestrator:
             prompt=params.get("prompt"),
             negative_prompt=params.get("negative_prompt"),
             seed=params.get("seed"),
+            metadata=provenance or None,
         )

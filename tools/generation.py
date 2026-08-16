@@ -4,6 +4,7 @@ import copy
 import inspect
 import logging
 import random
+import time
 from typing import Any, Dict, Optional
 
 from fastmcp import FastMCP
@@ -100,11 +101,16 @@ def register_workflow_generation_tools(
             try:
                 # GPU pressure guard: refuse admission under sustained saturation
                 if gpu_guard is not None:
-                    admission = gpu_guard.check_admission()
+                    heavy = (
+                        definition.output_preferences in (VIDEO_OUTPUT_KEYS, AUDIO_OUTPUT_KEYS)
+                        or "2512" in definition.workflow_id
+                    )
+                    admission = gpu_guard.check_admission(heavy=heavy)
                     if not admission["allowed"]:
                         return {
                             "error": admission["reason"],
                             "gpu_util": admission["gpu_util"],
+                            "vram_free_gb": admission.get("vram_free_gb"),
                             "pending": admission["pending"],
                             "suggestion": "Call interrupt()/clear_queue() or wait, then retry.",
                         }
@@ -162,6 +168,10 @@ def register_workflow_generation_tools(
                 prompt_val = provided_params.get("prompt") or provided_params.get("tags")
                 neg_prompt_val = provided_params.get("negative_prompt")
                 seed_val = provided_params.get("seed")
+                provenance = {}
+                workflow_hash = getattr(workflow_manager, "get_workflow_file_hash", None)
+                if callable(workflow_hash):
+                    provenance["workflow_hash"] = workflow_hash(definition.workflow_id)
                 return register_and_build_response(
                     result,
                     definition.workflow_id,
@@ -174,6 +184,7 @@ def register_workflow_generation_tools(
                     prompt=prompt_val,
                     negative_prompt=neg_prompt_val,
                     seed=seed_val,
+                    metadata=provenance or None,
                 )
                 
             except Exception as exc:
@@ -428,11 +439,14 @@ def register_regenerate_tool(
         try:
             # GPU pressure guard
             if gpu_guard is not None:
-                admission = gpu_guard.check_admission()
+                workflow_hint = (asset.workflow_id or "").lower()
+                heavy = any(k in workflow_hint for k in ("video", "audio", "2512"))
+                admission = gpu_guard.check_admission(heavy=heavy)
                 if not admission["allowed"]:
                     return {
                         "error": admission["reason"],
                         "gpu_util": admission["gpu_util"],
+                        "vram_free_gb": admission.get("vram_free_gb"),
                         "pending": admission["pending"],
                         "suggestion": "Call interrupt()/clear_queue() or wait, then retry.",
                     }

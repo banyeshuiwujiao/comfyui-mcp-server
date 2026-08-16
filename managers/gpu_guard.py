@@ -27,6 +27,11 @@ logger = logging.getLogger("MCP_Server")
 GPU_GUARD_ENABLED = os.getenv("COMFY_MCP_GPU_GUARD", "1") not in ("0", "false", "False", "")
 GPU_HIGH_UTIL = float(os.getenv("COMFY_MCP_GPU_HIGH_UTIL", "92"))      # percent
 GPU_GUARD_WINDOW = int(os.getenv("COMFY_MCP_GPU_GUARD_WINDOW", "3"))   # consecutive high samples
+# Absolute free-VRAM floor. ComfyUI keeps models resident, so a loaded-but-idle
+# GPU can sit at 96% with an empty queue. Light image jobs may still succeed
+# (ComfyUI evicts cache), but heavy video/audio decode under the floor is the
+# known trigger for VAE-decode access violations. Set 0 to disable.
+GPU_MIN_FREE_GB = float(os.getenv("COMFY_MCP_GPU_MIN_FREE_GB", "2.0"))
 GPU_SAMPLE_TIMEOUT = float(os.getenv("COMFY_MCP_GPU_SAMPLE_TIMEOUT", "3.0"))
 # A high sample is only "fresh" for this long. Stale (e.g. timeout-window old)
 # samples no longer count toward sustained saturation, so the guard cannot
@@ -59,15 +64,25 @@ class GpuGuard:
         direct `gpu_utilization` field (often None). We compute used-VRAM ratio
         as the saturation signal because it is the most reliably populated field.
         """
+        util, _free_gb = self._sample_gpu_stats()
+        return util
+
+    def _sample_gpu_stats(self) -> tuple[float | None, float | None]:
+        """Return (max_vram_util_percent, min_vram_free_gb) across devices.
+
+        ``min`` is used for the free-VRAM floor because admission should be
+        constrained by the most starved device.
+        """
         try:
             resp = requests.get(f"{self.base_url}/system_stats", timeout=GPU_SAMPLE_TIMEOUT)
             if resp.status_code != 200:
-                return None
+                return None, None
             data = resp.json()
             devices = data.get("devices") or data.get("system", {}).get("devices") or []
             if not devices:
-                return None
+                return None, None
             utils = []
+            free_gbs = []
             for d in devices:
                 # Prefer an explicit utilization if present and non-zero
                 if d.get("gpu_utilization"):
@@ -81,10 +96,13 @@ class GpuGuard:
                 if total and total > 0:
                     used = total - free
                     utils.append(100.0 * used / total)
-            return max(utils) if utils else None
+                    free_gbs.append(float(free) / (1024 ** 3))
+            max_util = max(utils) if utils else None
+            min_free_gb = min(free_gbs) if free_gbs else None
+            return max_util, min_free_gb
         except Exception as e:  # noqa: BLE001 - best effort
             logger.debug("GPU sample failed: %s", e)
-            return None
+            return None, None
 
     def _pending_count(self) -> int:
         try:
@@ -96,20 +114,53 @@ class GpuGuard:
         except Exception:  # noqa: BLE001
             return 0
 
-    def check_admission(self) -> dict:
+    def check_admission(self, heavy: bool = False) -> dict:
         """Decide whether to admit a new submission.
+
+        Args:
+            heavy: True when the pending submission is a video/audio decode or
+                a multi-branch heavyweight workflow. Light image jobs may still
+                be admitted under low free VRAM because ComfyUI evicts cached
+                models on demand; heavy jobs get an absolute free-VRAM floor
+                check that is evaluated regardless of queue depth.
 
         Returns dict with keys:
           allowed (bool): True if submission may proceed.
           reason (str): Human-readable explanation (always present).
           gpu_util (float|None): Last sampled utilization.
+          vram_free_gb (float|None): Free VRAM at sample time.
           pending (int): Current queue depth.
         """
         if not GPU_GUARD_ENABLED:
-            return {"allowed": True, "reason": "GPU guard disabled", "gpu_util": None, "pending": self._pending_count()}
+            return {
+                "allowed": True,
+                "reason": "GPU guard disabled",
+                "gpu_util": None,
+                "vram_free_gb": None,
+                "pending": self._pending_count(),
+            }
 
-        gpu_util = self._sample_gpu_util()
+        gpu_util, vram_free_gb = self._sample_gpu_stats()
         pending = self._pending_count()
+
+        # Absolute floor: heavy decode + very low free VRAM is refused even with
+        # an empty queue (ComfyUI model cache keeps VRAM hot after idle jobs).
+        if GPU_MIN_FREE_GB > 0 and vram_free_gb is not None and vram_free_gb < GPU_MIN_FREE_GB:
+            if heavy or pending > 0:
+                return {
+                    "allowed": False,
+                    "reason": (
+                        f"VRAM free {vram_free_gb:.2f}GB is below the "
+                        f"{GPU_MIN_FREE_GB:.1f}GB safety floor "
+                        f"({'heavy' if heavy else 'queued'} submission). Refusing to avoid "
+                        f"a VRAM exhaustion crash (MiniMax H3 VAE decode is especially fragile). "
+                        f"Wait, call interrupt()/clear_queue(), or set COMFY_MCP_GPU_MIN_FREE_GB=0 "
+                        f"to bypass; restarting ComfyUI also releases the resident model cache."
+                    ),
+                    "gpu_util": gpu_util,
+                    "vram_free_gb": vram_free_gb,
+                    "pending": pending,
+                }
 
         with self._lock:
             now = time.monotonic()
@@ -135,6 +186,7 @@ class GpuGuard:
                         f"or set COMFY_MCP_GPU_GUARD=0 to bypass."
                     ),
                     "gpu_util": gpu_util,
+                    "vram_free_gb": vram_free_gb,
                     "pending": pending,
                 }
 
@@ -142,7 +194,15 @@ class GpuGuard:
             note = "GPU load nominal"
             if gpu_util is not None:
                 note = f"GPU load {gpu_util:.0f}% (below {GPU_HIGH_UTIL:.0f}% threshold)"
-            return {"allowed": True, "reason": note, "gpu_util": gpu_util, "pending": pending}
+            if vram_free_gb is not None:
+                note += f", free VRAM {vram_free_gb:.2f}GB"
+            return {
+                "allowed": True,
+                "reason": note,
+                "gpu_util": gpu_util,
+                "vram_free_gb": vram_free_gb,
+                "pending": pending,
+            }
 
     def note_completed(self) -> None:
         """Call after a job finishes to opportunistically drop the oldest

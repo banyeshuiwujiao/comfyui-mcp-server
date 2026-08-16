@@ -1,6 +1,7 @@
 """Workflow management for loading and processing ComfyUI workflows"""
 
 import copy
+import hashlib
 import json
 import logging
 import random
@@ -94,6 +95,22 @@ class WorkflowManager:
                 logger.warning(f"Failed to load metadata for {workflow_path.name}: {e}")
         return {}
     
+    def get_workflow_file_hash(self, workflow_id: str) -> Optional[str]:
+        """Return the SHA-256 of the workflow template file on disk.
+
+        Used as provenance metadata on registered assets so a generated image
+        can be traced back to the exact workflow template version, even after
+        the template is edited later (regenerate reads the stored hash).
+        """
+        workflow_path = self._safe_workflow_path(workflow_id)
+        if not workflow_path:
+            return None
+        try:
+            return hashlib.sha256(workflow_path.read_bytes()).hexdigest()
+        except OSError as e:
+            logger.warning("Failed to hash workflow %s: %s", workflow_id, e)
+            return None
+
     def get_workflow_catalog(self) -> list[Dict[str, Any]]:
         """Get catalog of all available workflows"""
         catalog = []

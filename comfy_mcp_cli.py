@@ -132,6 +132,22 @@ def extract_text(result: dict) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+def result_is_failure(result: dict, payload: dict, allow_error: bool) -> bool:
+    """Classify MCP-level and business-level tool failures.
+
+    - ``result["isError"]`` is the MCP protocol flag (HTTP 200 + JSON-RPC ok).
+    - A parsed business payload containing ``error`` / ``error_code`` means the
+      tool ran but its business logic failed (GPU guard, missing workflow, ...).
+    """
+    if isinstance(result, dict) and result.get("isError") is True:
+        return True
+    if not allow_error and isinstance(payload, dict) and (
+        "error" in payload or "error_code" in payload
+    ):
+        return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     common = argparse.ArgumentParser(add_help=False)
@@ -145,6 +161,12 @@ def main() -> int:
     p_call.add_argument("tool")
     p_call.add_argument("arguments", help="JSON object or path to a JSON file (@file)")
     p_call.add_argument("--out", help="Optional path to write the raw JSON result")
+    p_call.add_argument(
+        "--allow-error",
+        action="store_true",
+        help="Treat tool-level isError / business 'error' responses as success (exit code 0). "
+             "By default any failure makes the CLI exit 1 so shell pipelines fail fast.",
+    )
 
     p_read = sub.add_parser("read", help="Read an MCP resource URI", parents=[common])
     p_read.add_argument("uri")
@@ -186,6 +208,16 @@ def main() -> int:
             if args.out:
                 with open(args.out, "w", encoding="utf-8") as f:
                     f.write(output + "\n")
+
+            # MCP-level failure: result.isError=true (HTTP 200, JSON-RPC success).
+            if result_is_failure(result, payload, args.allow_error):
+                reason = text
+                if isinstance(result, dict) and result.get("isError") is True:
+                    reason = text
+                else:
+                    reason = payload.get("error") or payload.get("error_code") or output
+                print(f"[X] tool '{args.tool}' failed: {reason}", file=sys.stderr)
+                return 1
             return 0
 
         if args.command == "read":

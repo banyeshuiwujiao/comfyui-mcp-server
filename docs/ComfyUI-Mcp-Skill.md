@@ -123,24 +123,26 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 ### 4.0.1 MCP 参数化暴露（已注入 `PARAM_` 占位符）
 
 > 本仓库附带的 MCP server 仅在**工作流字段值写为 `PARAM_XXX` 字符串**时，才会把该字段自动注册成 MCP 工具的入参（见 `managers/workflow_manager.py` 的 `_extract_parameters`）。原始 12 个工作流均未用此约定，因此之前只能走通用 `run_workflow` 透传整份 JSON。
-> **现已为每个工作流补上 `PARAM_` 占位符**（仅标记字符串类入参：`image` / `prompt` / `text`；数值类如 `seed`/`width` 因非字符串暂未标记），并把文件复制到 `comfyui-mcp-server/workflows/`，重启 MCP server 后即自动注册为参数化工具。
+> **现已为每个工作流补上 `PARAM_` 占位符**（字符串与数值入参均支持：`image`/`prompt` 以及 `seed`/`width`/`height`），并把文件复制到 `comfyui-mcp-server/workflows/`，重启 MCP server 后即自动注册为参数化工具。`docs/examples/` 是同源副本，两者以字节级同步为准。
 
-各工作流暴露的 MCP 入参：
+各工作流暴露的 MCP 入参（2026-08-16 实测版本）：
 
 | 工作流 | 暴露入参 | 绑定节点 | 备注 |
 |---|---|---|---|
-| `api_flux_kontext_dev_image_edit.json` | `image`, `prompt` | `190/image`, `192:6/text` | 改图指令走 `prompt` |
-| `api_image_flux2_klein_image_edit_9b_base.json` | `image`, `image2`, `prompt` | `76/image`, `81/image`, `75:74/text` | 双图：主图 + 参考图 |
-| `api_image_flux2_text_to_image_9b.json` | `prompt` | `75:74/text` | 文生图 |
-| `api_image_z_image_turbo_fun_union_controlnet.json` | `image`, `prompt` | `58/image`, `70:45/text` | 参考图 + 提示词 |
-| `api_image_z_image_turbo_t2i.json` | `prompt` | `57:27/text` | 文生图 |
-| `api_qwen_Image_edit_subgraphed.json` | `image`, `prompt` | `78/image`, `141:132/prompt` | 编辑指令走 `prompt` |
-| `api_qwen_image_edit_2511_1_click_multiple_character_angles-v1.0.json` | `image` | `25/image` | 仅暴露输入图；6 个分支角度 prompt 各独立，未统一覆盖 |
-| `api_qwen_image_edit_2512_1_click_multiple_scene_angles-v1.0.json` | `image` | `25/image` | 仅暴露输入图；9 个场景分支 prompt 各独立 |
+| `api_flux_kontext_dev_image_edit.json` | `image`, `prompt`, `seed` | `190/image`, `192:6/text`, KSampler seed | 改图指令走 `prompt` |
+| `api_image_flux2_klein_image_edit_9b_base.json` | `image`, `image2`, `prompt`, `seed` | `76/image`, `81/image`, `75:74/text`, noise_seed | 双图：主图 + 参考图 |
+| `api_image_flux2_text_to_image_9b.json` | `prompt`, `seed` | `75:74/text`, `75:73/noise_seed` | 文生图 |
+| `api_image_z_image_turbo_fun_union_controlnet.json` | `image`, `prompt`, `seed` | `58/image`, `70:45/text`, KSampler seed | 参考图 + 提示词 |
+| `api_image_z_image_turbo_t2i.json` | `prompt`, `width`, `height`, `seed` | `57:27/text`, `57:13` 宽高, `57:3/seed` | 文生图（16:9 背景主力） |
+| `api_qwen_Image_edit_subgraphed.json` | `image`, `prompt`, `seed` | `78/image`, `141:132/prompt`, KSampler seed | 编辑指令走 `prompt` |
+| `api_qwen_image_edit_2511_1_click_multiple_character_angles-v1.0.json` | `image`, `prompt`, `seed` | `25/image`；`prompt` 统一覆盖 8 个分支 | 一键 6 角色视角 |
+| `api_qwen_image_edit_2512_1_click_multiple_scene_angles-v1.0.json` | `image`, `prompt`, `seed` | `25/image`；`prompt` 统一覆盖 16 个 slot | 一键 9 场景视角 |
 | `api_utility_z_image_turbo_2k_upscaler.json` | `image`, `prompt` | `77/image`, `87:67/text` | 待放大图 + 提示词 |
-| `api_video_minimax_h3_i2v.json` | `image` | `114/image` | **prompt 未标记**：原文含 `<Picture 1>` 首帧引用，整体替换会丢失语义，故保留 |
-| `api_video_minimax_h3_t2v.json` | `prompt` | `105:104/prompt` | t2v 无 `<Picture>` 占位符，可安全标记 |
-| `api_video_minimax_h3_r2v.json` | `image`, `image2` | `137/image`, `139/image` | **prompt 未标记**：原文含 `<Picture 1>/<Picture 2>` 参考图引用，保留 |
+| `api_video_minimax_h3_i2v.json` | `image`, `seed` | `114/image`, noise_seed | **prompt 未标记**：原文含 `<Picture 1>` 首帧引用，整体替换会丢失语义，故保留 |
+| `api_video_minimax_h3_t2v.json` | `prompt`, `seed` | `105:104/prompt`, noise_seed | t2v 无 `<Picture>` 占位符，可安全标记 |
+| `api_video_minimax_h3_r2v.json` | `image`, `image2`, `seed` | `137/image`, `139/image`, noise_seed | **prompt 未标记**：原文含 `<Picture 1>/<Picture 2>` 参考图引用，保留 |
+
+2026-08-16 追加参数化的 3 个工作流（强类型工具 12→15）：`api_image_z_image_turbo.json`（`prompt/width/height/seed`）、`api_image_z_image_int8.json`（`prompt/seed`）、`api_wan2.1_fun_control.json`（`image/prompt/seed`）。
 
 **调用约定**：Agent 通过 MCP 调用时，用 `overrides={"image": "xxx.png", "prompt": "..."}` 即可；未提供的入参回落到工作流内默认值（如默认提示词、默认种子）。
 
@@ -263,6 +265,7 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 4. **后处理产物落盘**：matting / sprite-sheet 的字节原先只登记元数据、从不写盘，`asset_url` 悬空（`/view` 404）。新增 `persist_processed_bytes`，工具与 `run_pipeline` 步骤在登记前先写入 ComfyUI output 根。
 5. **workflow 参数化补齐**：`workflows/api_utility_z_image_turbo_2k_upscaler.json` 补上 docs 已宣称的 `PARAM_IMAGE/PARAM_PROMPT`；`api_image_z_image_turbo_t2i.json` 新增 `PARAM_INT_WIDTH/PARAM_INT_HEIGHT`（实测 1024×576 直接可用）。
 6. **新增 `comfy_mcp_cli.py`**：无 SDK 依赖的 streamable-http MCP CLI——`tools` / `call <tool> <json|@file>` / `read <uri>` / `prompts`，SSE 自动解析。脚本与 AI Agent 都可直接驱动 MCP。
+7. **`comfyui://workflows` 资源修复**：`WorkflowManager.tool_definitions` 已是列表结构，资源端点仍按字典 `.items()` 遍历导致 `AttributeError: 'list' object has no attribute 'items'`；现已按 `WorkflowToolDefinition`（`workflow_id` + `parameters.values()` + `annotation`）正确序列化，全量 pytest 189/189 通过。
 
 **Godot 表现层实战调用样例**（本仓库 `Config/mcp_gen_logs/` 有完整回包）：
 
@@ -293,6 +296,16 @@ python comfy_mcp_cli.py call get_asset_lineage '{"asset_id":"<t2i_asset_id>"}'
   - `api_image_z_image_int8.json`：`PARAM_PROMPT` + `PARAM_INT_SEED`（宽高保持分辨率选择器连线）；
   - `api_wan2.1_fun_control.json`：`PARAM_IMAGE` + `PARAM_PROMPT` + `PARAM_INT_SEED`。
 - **约定**：入库新 workflow 时至少把 `prompt`（文本类）/`image`（图控类）/`seed` 参数化，否则等同"死资产"；重启 MCP 服务后强类型工具自动出现。
+
+### 4.0.11 2026-08-16 数据飞轮健壮性修复（P0 崩溃点 + CLI 失败语义 + GPU 分级保护）
+
+1. **修复 `run_pipeline` workflow 步骤崩溃**（`pipeline_orchestrator.py`）：`get_workflow`→`load_workflow`；`apply_workflow_overrides` 改为正确 4 参签名并移除 `__override_report__`；`diagnose_error`→`diagnose`。预置 recipes 中的 `generate_image` 统一替换为真实 `api_image_z_image_turbo_t2i`，并保留 `generate_image/generate_song/generate_video` 别名映射。
+2. **修复 `comfyui://workflows` 资源崩溃**（`tools/mcp_resources.py`）：`tool_definitions` 是 list 而非 dict；参数类型字段是 `annotation` 而非 `type_hint`。现按真实 `WorkflowToolDefinition` 结构读取，返回 15 个工作流的完整参数清单。
+3. **CLI 失败语义**（`comfy_mcp_cli.py`）：`tools/call` 的 `result.isError=true` 与业务 `{"error": ...}` 负载现在都使 CLI 退出码为 1（`--allow-error` 可恢复旧行为），shell 脚本 `&&` 链不再把生成失败当成功。
+4. **GPU guard 分级保护**（`managers/gpu_guard.py`）：新增 `COMFY_MCP_GPU_MIN_FREE_GB`（默认 2GB）。轻量图像任务在空队列时仍可提交（ComfyUI 会换出常驻缓存），重负载（视频/音频/多视角）或队列非空时显存低于下限直接拒绝，防住 VAE decode access violation。
+5. **资产血缘补强**：资产 metadata 新增 `workflow_hash`（工作流模板文件 SHA-256）；重复命中确定性文件名（`transparent_*`/`spritesheet_*`）时刷新全部内容字段，血缘/prompt/seed 始终描述最新字节。
+6. **`docs/examples/` 重新与 `workflows/` 字节级同步**，消除"同源副本"漂移。
+- **验证**：pytest 197/197；重启 MCP 后 47 工具在线；`comfyui://workflows` 读取成功；CLI 未知工具退出码 1。
 
 ### 4.1 各视频工作流节点要点
 

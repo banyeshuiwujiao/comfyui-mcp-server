@@ -209,12 +209,13 @@ def register_mcp_resources(
     )
     def workflows_resource() -> str:
         workflows = []
-        for wf_id, tool_def in workflow_manager.tool_definitions.items():
+        for tool_def in workflow_manager.tool_definitions:
+            wf_id = tool_def.workflow_id
             params = []
-            for p in tool_def.parameters:
+            for p in tool_def.parameters.values():
                 params.append({
                     "name": p.name,
-                    "type": p.type_hint.__name__ if p.type_hint else "str",
+                    "type": p.annotation.__name__ if p.annotation else "str",
                     "required": p.required,
                     "description": p.description or "",
                 })

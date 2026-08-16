@@ -17,14 +17,17 @@ class MockWorkflowParam:
     def __init__(self, name, type_hint=str, required=True, description=""):
         self.name = name
         self.type_hint = type_hint
+        self.annotation = type_hint  # mirrors models.workflow.WorkflowParameter
         self.required = required
         self.description = description
 
 
 class MockToolDef:
-    def __init__(self, description="", parameters=None):
+    def __init__(self, workflow_id="", description="", parameters=None):
+        self.workflow_id = workflow_id
         self.description = description
-        self.parameters = parameters or []
+        # mirrors WorkflowToolDefinition: OrderedDict[name, WorkflowParameter]
+        self.parameters = {p.name: p for p in (parameters or [])}
 
 
 @pytest.fixture
@@ -48,28 +51,31 @@ def mock_comfyui_client():
 @pytest.fixture
 def mock_workflow_manager():
     wm = MagicMock()
-    wm.tool_definitions = {
-        "api_image_flux2_text_to_image_9b": MockToolDef(
+    wm.tool_definitions = [
+        MockToolDef(
+            workflow_id="api_image_flux2_text_to_image_9b",
             description="Flux2 Klein 9B text-to-image",
             parameters=[
                 MockWorkflowParam("prompt", str, True, "Main text prompt"),
                 MockWorkflowParam("seed", int, False, "Random seed"),
             ],
         ),
-        "api_video_minimax_h3_t2v": MockToolDef(
+        MockToolDef(
+            workflow_id="api_video_minimax_h3_t2v",
             description="MiniMax H3 text-to-video",
             parameters=[
                 MockWorkflowParam("prompt", str, True, "Video prompt"),
             ],
         ),
-        "api_audio_ace_step1_5_xl_sft": MockToolDef(
+        MockToolDef(
+            workflow_id="api_audio_ace_step1_5_xl_sft",
             description="AceStep 1.5 XL audio generation",
             parameters=[
                 MockWorkflowParam("tags", str, True, "Music tags"),
                 MockWorkflowParam("lyrics", str, True, "Song lyrics"),
             ],
         ),
-    }
+    ]
     return wm
 
 

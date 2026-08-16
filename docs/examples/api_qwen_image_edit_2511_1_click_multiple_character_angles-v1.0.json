@@ -183,7 +183,7 @@
   },
   "427:221:151": {
     "inputs": {
-      "prompt": " Turn the camera to a close-up.",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:221:162",
         0
@@ -374,7 +374,7 @@
   },
   "427:221:169": {
     "inputs": {
-      "seed": 345666571704709,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:221:167",
         0
@@ -521,7 +521,7 @@
   },
   "427:246:228": {
     "inputs": {
-      "prompt": "Rotate the camera 45 degrees to the right.\n",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:246:235",
         0
@@ -712,7 +712,7 @@
   },
   "427:246:242": {
     "inputs": {
-      "seed": 94413014144160,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:246:241",
         0
@@ -859,7 +859,7 @@
   },
   "427:271:253": {
     "inputs": {
-      "prompt": "Turn the camera to an aerial view.",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:271:260",
         0
@@ -1050,7 +1050,7 @@
   },
   "427:271:267": {
     "inputs": {
-      "seed": 125446141429890,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:271:266",
         0
@@ -1197,7 +1197,7 @@
   },
   "427:296:278": {
     "inputs": {
-      "prompt": "Turn the camera to a wide-angle lens.",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:296:285",
         0
@@ -1388,7 +1388,7 @@
   },
   "427:296:292": {
     "inputs": {
-      "seed": 894019412835482,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:296:291",
         0
@@ -1535,7 +1535,7 @@
   },
   "427:321:303": {
     "inputs": {
-      "prompt": "Rotate the camera 90 degrees to the right.\n",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:321:310",
         0
@@ -1726,7 +1726,7 @@
   },
   "427:321:317": {
     "inputs": {
-      "seed": 293522831863199,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:321:316",
         0
@@ -1873,7 +1873,7 @@
   },
   "427:346:328": {
     "inputs": {
-      "prompt": "Turn the camera to a low-angle view.",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:346:335",
         0
@@ -2064,7 +2064,7 @@
   },
   "427:346:342": {
     "inputs": {
-      "seed": 396394480748806,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:346:341",
         0
@@ -2211,7 +2211,7 @@
   },
   "427:371:353": {
     "inputs": {
-      "prompt": "Rotate the camera 90 degrees to the left.",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:371:360",
         0
@@ -2402,7 +2402,7 @@
   },
   "427:371:367": {
     "inputs": {
-      "seed": 96367255219346,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:371:366",
         0
@@ -2549,7 +2549,7 @@
   },
   "427:423:405": {
     "inputs": {
-      "prompt": "Rotate the camera 45 degrees to the left.",
+      "prompt": "PARAM_STR_PROMPT",
       "clip": [
         "427:423:412",
         0
@@ -2740,7 +2740,7 @@
   },
   "427:423:419": {
     "inputs": {
-      "seed": 680317904436629,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "427:423:418",
         0

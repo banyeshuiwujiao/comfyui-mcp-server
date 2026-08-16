@@ -20,7 +20,8 @@ def register_and_build_response(
     prompt: Optional[str] = None,
     negative_prompt: Optional[str] = None,
     seed: Optional[int] = None,
-    tags: Optional[list] = None
+    tags: Optional[list] = None,
+    metadata: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Helper function to register asset and build response data.
 
@@ -39,6 +40,8 @@ def register_and_build_response(
         negative_prompt: Optional negative prompt
         seed: Optional generation seed
         tags: Optional tags list
+        metadata: Optional extra provenance to merge into the stored metadata
+            (e.g. workflow file hash for template-level reproducibility)
 
     Returns:
         Response data dict with asset_id, asset_url, metadata, etc.
@@ -50,9 +53,11 @@ def register_and_build_response(
 
     # Register asset in registry using stable identity
     asset_metadata = result.get("asset_metadata", {})
-    metadata = {"workflow_id": workflow_id}
+    stored_metadata = {"workflow_id": workflow_id}
+    if metadata:
+        stored_metadata.update({k: v for k, v in metadata.items() if v is not None})
     if tool_name:
-        metadata["tool"] = tool_name
+        stored_metadata["tool"] = tool_name
     
     asset_record = asset_registry.register_asset(
         filename=result.get("filename", ""),
@@ -66,7 +71,7 @@ def register_and_build_response(
         bytes_size=asset_metadata.get("bytes_size"),
         comfy_history=result.get("comfy_history"),
         submitted_workflow=result.get("submitted_workflow"),
-        metadata=metadata,
+        metadata=stored_metadata,
         session_id=session_id,
         parent_asset_id=parent_asset_id,
         generation_type=generation_type or ("regenerate" if tool_name == "regenerate" else "t2i"),

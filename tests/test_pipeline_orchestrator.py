@@ -70,13 +70,15 @@ def mock_workflow_manager():
         "api_image_flux2_text_to_image_9b": MagicMock(),
         "api_video_minimax_h3_i2v": MagicMock(),
     }
-    def mock_get_workflow(wf_id):
-        if wf_id in wm.tool_definitions or wf_id in ("generate_image", "generate_song"):
+    def mock_load_workflow(wf_id):
+        if wf_id in wm.tool_definitions or wf_id in ("api_image_z_image_turbo_t2i", "api_audio_minimax_music_3"):
             return {"3": {"class_type": "KSampler"}}
         return None
 
-    wm.get_workflow = mock_get_workflow
-    wm.apply_workflow_overrides.return_value = {"3": {"class_type": "KSampler"}}
+    wm.load_workflow = mock_load_workflow
+    wm.apply_workflow_overrides = MagicMock(return_value={"3": {"class_type": "KSampler"}})
+    wm._guess_output_preferences = MagicMock(return_value=("images", "image", "gifs", "gif"))
+    wm.get_workflow_file_hash = MagicMock(return_value="hash:mock")
     return wm
 
 
@@ -162,9 +164,9 @@ class TestPipelineOrchestrator:
         result = orchestrator.execute_pipeline(steps=steps)
         assert result["status"] == "success"
 
-        # Verify prompt injection
+        # Verify prompt injection: apply_workflow_overrides(workflow, wf_id, params, defaults_manager)
         call_args = mock_workflow_manager.apply_workflow_overrides.call_args
-        overrides = call_args[0][1]
+        overrides = call_args[0][2]
         assert "1man, trenchcoat, cybernetic eye" in overrides["prompt"]
         assert "walking down the alley" in overrides["prompt"]
         assert "cyberpunk aesthetic" in overrides["prompt"]
@@ -293,7 +295,7 @@ class TestPipelineMCPTools:
 
     def test_execute_pipeline_error_with_diagnosis(self, mock_comfyui_client, asset_registry, mock_workflow_manager):
         mock_diagnoser = MagicMock()
-        mock_diagnoser.diagnose_error.return_value = {
+        mock_diagnoser.diagnose.return_value = {
             "error_type": "CUDA_OOM",
             "actionable_recommendations": ["Reduce width/height"],
             "suggested_params": {"width": 512, "height": 512},
