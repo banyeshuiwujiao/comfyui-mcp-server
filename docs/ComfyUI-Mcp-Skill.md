@@ -307,6 +307,19 @@ python comfy_mcp_cli.py call get_asset_lineage '{"asset_id":"<t2i_asset_id>"}'
 6. **`docs/examples/` 重新与 `workflows/` 字节级同步**，消除"同源副本"漂移。
 - **验证**：pytest 197/197；重启 MCP 后 47 工具在线；`comfyui://workflows` 读取成功；CLI 未知工具退出码 1。
 
+### 4.0.12 2026-08-16 Godot 导出工具（数据飞轮第 3 步自动化）
+
+- 新增 MCP 工具 **`export_to_godot(asset_id, target_dir, target_filename, category, overwrite)`**：
+  - 直接从 ComfyUI `/view` 拉取资产字节，写入 Godot `Resources/<类别>/` 目录；
+  - 自动维护目录旁 `manifest.json` 血缘台账（`asset_id`/`source_asset_id`/`matting_asset_id`/`workflow_id`/`prompt`/`workflow_hash`/像素尺寸/导出时间）；
+  - `target_filename` 只接受纯文件名 + `.png/.webp/.jpg/.jpeg`，路径穿越一律拒绝；
+  - 与 Godot 侧「AI 资产可选装饰 + try-catch 回落」约定匹配，失败返回结构化 `error_code`。
+- 用法：
+  ```powershell
+  python comfy_mcp_cli.py call export_to_godot '{"asset_id":"<matting_asset_id>","target_dir":"E:/Desktop/MiniGame/OneQi-ET8.1/ET.Client/OneQi/MainPack/Resources/Fx","target_filename":"fx_victory.png","category":"Fx"}'
+  ```
+- **验证**：pytest 201/201；真实导出 `fx_victory.png`/`fx_defeat.png` 落盘并写入 5 条目 manifest（512×512、含完整血缘）。
+
 ### 4.1 各视频工作流节点要点
 
 **i2v / t2v 通用骨架**（以 `api_video_minimax_h3_i2v.json` 为例）：

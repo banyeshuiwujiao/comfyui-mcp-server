@@ -1,11 +1,14 @@
 """Publish tools for safely publishing ComfyUI assets to web project directories"""
 
+import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastmcp import FastMCP
 
+from asset_processor import fetch_asset_bytes, get_image_metadata
 from managers.publish_manager import (
     PublishManager,
     auto_generate_filename,
@@ -14,6 +17,54 @@ from managers.publish_manager import (
 )
 
 logger = logging.getLogger("MCP_Server")
+
+
+def _sanitize_export_filename(filename: str) -> str:
+    """Keep only the basename so a caller can never escape the target directory."""
+    name = Path(filename or "").name.strip()
+    if not name:
+        return ""
+    if name != filename or name in (".", ".."):
+        return ""
+    if not name.lower().endswith((".png", ".webp", ".jpg", ".jpeg")):
+        return ""
+    return name
+
+
+def _update_godot_manifest(target_dir: Path, entry: dict, category: Optional[str]) -> dict:
+    """Merge an export entry into ``target_dir/manifest.json`` (lineage ledger).
+
+    The Godot data-flywheel convention keeps a manifest next to the resource
+    directory so every AI asset stays traceable: prompt, workflow id, ComfyUI
+    asset ids, pipeline chain and file hash are all recorded here.
+    """
+    manifest_path = target_dir / "manifest.json"
+    manifest: dict = {}
+    if manifest_path.exists():
+        try:
+            loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                manifest = loaded
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Could not read existing Godot manifest %s: %s", manifest_path, e)
+
+    if "assets" not in manifest or not isinstance(manifest.get("assets"), list):
+        manifest["assets"] = []
+    manifest["assets"] = [item for item in manifest["assets"] if item.get("file") != entry.get("file")]
+    manifest["assets"].append(entry)
+
+    # Sort for stable diffs; enrich the header with the latest export.
+    manifest["assets"].sort(key=lambda item: item.get("file", ""))
+    manifest["generator"] = "comfyui-mcp-server (streamable-http @127.0.0.1:9000/mcp)"
+    if category:
+        manifest["category"] = category
+    manifest["last_export_at"] = datetime.now(timezone.utc).isoformat()
+
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
 
 
 def register_publish_tools(
@@ -83,7 +134,7 @@ def register_publish_tools(
         max_bytes: int = 600_000,
         overwrite: bool = True
     ) -> dict:
-        """Publish a ComfyUI-generated asset to a web project directory.
+        r"""Publish a ComfyUI-generated asset to a web project directory.
         
         Supports two modes:
         - **Demo mode**: Provide `target_filename` (e.g., "hero.png") - deterministic filename
@@ -270,3 +321,120 @@ def register_publish_tools(
                 "error": f"Failed to publish asset: {str(e)}",
                 "error_code": "PUBLISH_FAILED"
             }
+
+    @mcp.tool()
+    def export_to_godot(
+        asset_id: str,
+        target_dir: str,
+        target_filename: str,
+        category: Optional[str] = None,
+        overwrite: bool = True,
+    ) -> dict:
+        """Export a generated asset directly into a Godot Resources directory.
+
+        This is the "step 3" tool of the OneQi data flywheel: it fetches the
+        asset bytes from ComfyUI, writes them into the requested Godot resource
+        directory, and maintains a ``manifest.json`` ledger next to the file.
+        The ledger records the ComfyUI asset ids (source + matting), workflow id,
+        prompt, workflow template hash and pixel size, so every AI-generated PNG
+        inside the Godot repository stays traceable and reproducible.
+
+        Args:
+            asset_id: ComfyUI asset id (from any generation/matting tool).
+            target_dir: Existing absolute directory in the Godot project, e.g.
+                ``E:/Desktop/MiniGame/OneQi-ET8.1/ET.Client/OneQi/MainPack/Resources/Fx``.
+            target_filename: Output filename, basename only (e.g. ``fx_victory.png``).
+                Must end in .png/.webp/.jpg/.jpeg; path separators are rejected.
+            category: Optional category label written into the manifest header
+                (e.g. "Fx", "Backgrounds"). Defaults to the directory basename.
+            overwrite: Replace an existing file (default True).
+
+        Returns:
+            Dict with dest_path, bytes_size, width, height and the full
+            manifest entry that was written.
+        """
+        asset_record = asset_registry.get_asset(asset_id)
+        if not asset_record:
+            return {
+                "error": f"Asset {asset_id} not found or expired",
+                "error_code": "ASSET_NOT_FOUND_OR_EXPIRED",
+            }
+
+        filename = _sanitize_export_filename(target_filename)
+        if not filename:
+            return {
+                "error": "target_filename must be a plain basename ending in .png/.webp/.jpg/.jpeg",
+                "error_code": "INVALID_TARGET_FILENAME",
+            }
+
+        target_path = Path(target_dir)
+        try:
+            target_path = target_path.resolve(strict=True)
+        except (OSError, RuntimeError) as e:
+            return {
+                "error": f"target_dir does not exist or cannot be resolved: {target_dir} ({e})",
+                "error_code": "INVALID_TARGET_DIR",
+            }
+        if not target_path.is_dir():
+            return {
+                "error": f"target_dir is not a directory: {target_dir}",
+                "error_code": "INVALID_TARGET_DIR",
+            }
+
+        try:
+            raw_bytes = fetch_asset_bytes(asset_record, publish_manager.config.comfyui_url)
+        except Exception as e:  # noqa: BLE001 - surface as structured tool error
+            return {
+                "error": f"Could not fetch asset bytes: {e}",
+                "error_code": "FETCH_FAILED",
+            }
+        if not raw_bytes:
+            return {
+                "error": f"Could not fetch asset bytes for {asset_id}",
+                "error_code": "FETCH_FAILED",
+            }
+
+        dest_path = target_path / filename
+        if dest_path.exists() and not overwrite:
+            return {
+                "error": f"Destination already exists (pass overwrite=true to replace): {dest_path}",
+                "error_code": "DEST_EXISTS",
+            }
+
+        try:
+            dest_path.write_bytes(raw_bytes)
+        except OSError as e:
+            return {
+                "error": f"Could not write destination file: {e}",
+                "error_code": "WRITE_FAILED",
+            }
+
+        image_meta = get_image_metadata(raw_bytes) or {}
+        size = [image_meta.get("width"), image_meta.get("height")]
+
+        is_matting = getattr(asset_record, "generation_type", None) == "matting"
+        entry = {
+            "file": filename,
+            "comfy_file": asset_record.filename,
+            "asset_id": asset_record.asset_id,
+            "source_asset_id": asset_record.parent_asset_id if is_matting else asset_record.asset_id,
+            "matting_asset_id": asset_record.asset_id if is_matting else None,
+            "workflow_id": asset_record.workflow_id,
+            "size": size,
+            "prompt": getattr(asset_record, "prompt", None),
+            "workflow_hash": (asset_record.metadata or {}).get("workflow_hash"),
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+        }
+        category = category or target_path.name
+        manifest = _update_godot_manifest(target_path, entry, category)
+
+        return {
+            "status": "success",
+            "dest_path": str(dest_path),
+            "bytes_size": len(raw_bytes),
+            "width": image_meta.get("width"),
+            "height": image_meta.get("height"),
+            "manifest_entry": entry,
+            "manifest_path": str(target_path / "manifest.json"),
+            "manifest_count": len(manifest.get("assets", [])),
+        }
