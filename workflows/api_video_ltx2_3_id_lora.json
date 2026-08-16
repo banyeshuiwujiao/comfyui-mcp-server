@@ -10,7 +10,7 @@
   },
   "276": {
     "inputs": {
-      "audio": "ComfyUI_00006_.mp4"
+      "audio": "ComfyUI_00008_.mp4"
     },
     "class_type": "LoadAudio",
     "_meta": {
@@ -34,7 +34,7 @@
   },
   "340:285": {
     "inputs": {
-      "noise_seed": "PARAM_INT_SEED"
+      "noise_seed": 42
     },
     "class_type": "RandomNoise",
     "_meta": {
@@ -43,7 +43,7 @@
   },
   "340:286": {
     "inputs": {
-      "noise_seed": "PARAM_INT_SEED"
+      "noise_seed": 597157848195547
     },
     "class_type": "RandomNoise",
     "_meta": {
