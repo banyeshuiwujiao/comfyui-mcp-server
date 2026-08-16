@@ -28,7 +28,7 @@
   },
   "76:67": {
     "inputs": {
-      "text": "Surreal double exposure portrait, semi-transparent glass human silhouette filled with fresh flowers and green foliage, faceless, glossy royal blue nylon baseball cap & shiny royal blue puffer jacket, bird of paradise, white jasmine, light purple forget-me-nots, lush leaves through glass gaps, subtle glass light refraction, plain off-white minimalist background, soft studio lighting, high fashion editorial, hyperrealistic texture, reflective synthetic fabric, delicate translucent flower layers, vertical composition, sharp focus, 8K ultra detailed, neutral tones with bright blue & orange floral pops, botanical glass fashion art",
+      "text": "PARAM_PROMPT",
       "clip": [
         "76:62",
         0
@@ -130,7 +130,7 @@
   },
   "76:69": {
     "inputs": {
-      "seed": 677498465340151,
+      "seed": "PARAM_INT_SEED",
       "steps": 25,
       "cfg": 4,
       "sampler_name": "res_multistep",

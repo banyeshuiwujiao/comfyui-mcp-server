@@ -94,6 +94,9 @@ API 格式是一个 dict：`{ node_id: { "class_type": "...", "inputs": {...} } 
 | `api_image_z_image_turbo_t2i.json` | **Z-Image-Turbo 文生图**（8 步极速，AuraFlow 架构） | `57:27` 的 `text`（提示词）、`57:13` 的宽高（默认 1024×1024） | `output/z-image-turbo_*.png` |
 | `api_image_z_image_turbo_fun_union_controlnet.json` | **Z-Image-Turbo + Fun-Union ControlNet**（给参考图做 Canny 控制生图） | `58` 的 `image`（参考图）、`70:45` 的 `text`（提示词） | `output/z-image-turbo_*.png` |
 | `api_utility_z_image_turbo_2k_upscaler.json` | **Z-Image-Turbo 2K 放大**（RealESRGAN 预放大 + Turbo 细化到 2K） | `77` 的 `image`（待放大图）、`87:67` 的 `text`（提示词，如 `masterpiece, 8k`） | `output/z-image-upscaled_*.png` |
+| `api_image_z_image_turbo.json` | **Z-Image-Turbo 文生图（轻量变体）** | `57:27` 的 `text`、`57:13` 的宽高、`57:3` 的 `seed` | `output/z-image-turbo_*.png` |
+| `api_image_z_image_int8.json` | **Z-Image INT8 量化文生图**（低显存变体） | `76:67` 的 `text`、`76:69` 的 `seed` | `output/z-image-*.png` |
+| `api_wan2.1_fun_control.json` | **Wan2.1 Fun-Control 控制图生视频**（Canny 控制） | `52` 的 `image`（控制图）、`6` 的 `text`、`3` 的 `seed` | `output/wan_*.mp4` |
 
 ### 4.0 实测验证记录（速度 / 效果 / 稳定性）
 
@@ -281,6 +284,15 @@ python comfy_mcp_cli.py call get_asset_lineage '{"asset_id":"<t2i_asset_id>"}'
 - **问题**：`DefaultsManager._hardcoded_defaults` 曾为 `image`/`audio` 硬编码 `v1-5-pruned-emaonly.ckpt` / `ace_step_v1_3.5b.safetensors`。这两者不是所有机器都有的 checkpoint，导致启动即打 "not found in ComfyUI checkpoints" 告警；带 `model` 参数的工作流若调用方未显式传 model，还会被注入一个不存在的模型名直接报错。
 - **修复**：删除硬编码 `model` 默认。工作流 JSON 自带模型节点，不再需要全局兜底模型；需要机器级默认时按优先级配置：`set_defaults` > `~/.config/comfy-mcp/config.json` > `COMFY_MCP_DEFAULT_{IMAGE,AUDIO,VIDEO}_MODEL`。
 - **回归测试**：新增 `tests/test_defaults_manager.py`——无配置时启动零告警且 `get_default(..., "model")` 返回 None；显式配置了缺失模型时仍按原语义告警。
+
+### 4.0.10 2026-08-16 新工作流参数化补强（12→15 个强类型工具）
+
+- **发现**：`WorkflowManager._load_workflows` 对没有 `PARAM_*` 占位符的工作流直接跳过自动工具注册，只能走通用 `run_workflow` 裸调；上一轮入库的 11 个工作流全部处于该状态。
+- **修复**：给与 Godot 表现层最相关的 3 个补齐占位符并验证注册：
+  - `api_image_z_image_turbo.json`：`PARAM_PROMPT` + `PARAM_INT_WIDTH/HEIGHT` + `PARAM_INT_SEED`；
+  - `api_image_z_image_int8.json`：`PARAM_PROMPT` + `PARAM_INT_SEED`（宽高保持分辨率选择器连线）；
+  - `api_wan2.1_fun_control.json`：`PARAM_IMAGE` + `PARAM_PROMPT` + `PARAM_INT_SEED`。
+- **约定**：入库新 workflow 时至少把 `prompt`（文本类）/`image`（图控类）/`seed` 参数化，否则等同"死资产"；重启 MCP 服务后强类型工具自动出现。
 
 ### 4.1 各视频工作流节点要点
 

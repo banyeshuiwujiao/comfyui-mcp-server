@@ -1,7 +1,7 @@
 {
   "3": {
     "inputs": {
-      "seed": 887940314022885,
+      "seed": "PARAM_INT_SEED",
       "steps": 20,
       "cfg": 6,
       "sampler_name": "uni_pc",
@@ -31,7 +31,7 @@
   },
   "6": {
     "inputs": {
-      "text": "a women sticking out her toungue while mkaing wierd faces,(clay style:1.1)",
+      "text": "PARAM_PROMPT",
       "clip": [
         "38",
         0
@@ -129,7 +129,7 @@
   },
   "52": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
