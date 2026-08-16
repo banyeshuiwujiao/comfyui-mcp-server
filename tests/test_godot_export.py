@@ -144,6 +144,9 @@ def test_sanitize_export_filename_accepts_plain_png():
     assert _sanitize_export_filename("fx_victory.png") == "fx_victory.png"
     assert _sanitize_export_filename("a/b.png") == ""
     assert _sanitize_export_filename("noext") == ""
+    # Audio/video workflows also land in Godot via the same exporter.
+    assert _sanitize_export_filename("bgm_heroic_cue.mp3") == "bgm_heroic_cue.mp3"
+    assert _sanitize_export_filename("cutscene.webm") == "cutscene.webm"
 
 
 def test_publish_asset_godot_mode_is_same_implementation(tmp_path):

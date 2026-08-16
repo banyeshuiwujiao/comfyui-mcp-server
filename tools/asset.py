@@ -1,7 +1,7 @@
 """Asset viewing and multimodal perception tools for ComfyUI MCP Server"""
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from fastmcp import FastMCP
 from fastmcp.utilities.types import Image as FastMCPImage
@@ -32,7 +32,7 @@ def register_asset_tools(
         mode: str = "thumb",
         max_dim: Optional[int] = None,
         max_b64_chars: Optional[int] = None,
-    ) -> dict:
+    ) -> Any:
         """View a generated image inline in chat (thumbnail preview only).
         
         This tool allows the AI agent to view generated assets inline in the chat interface,
@@ -206,7 +206,7 @@ def register_asset_tools(
         mode: str = "strip",
         num_frames: int = 4,
         max_dim: Optional[int] = None
-    ) -> dict:
+    ) -> Any:
         """View a generated video asset inline via keyframe contact sheet strip, animated GIF, or metadata.
         
         Allows the AI to inspect motion continuity, lighting, and consistency across time.
@@ -272,7 +272,7 @@ def register_asset_tools(
         asset_id: str,
         mode: str = "waveform",
         max_dim: Optional[int] = None
-    ) -> dict:
+    ) -> Any:
         """View a generated audio asset inline via visual waveform diagram or feature analysis.
         
         Args:

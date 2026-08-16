@@ -327,6 +327,12 @@ python comfy_mcp_cli.py call get_asset_lineage '{"asset_id":"<t2i_asset_id>"}'
 3. **Qwen 多视角实测结论（本机 16GB）**：`api_qwen_image_edit_2511` 引用 38GB bf16 模型，冷启动与 `--disable-async-offload` 均触发 comfy_aimdo `HostBuffer.read_file_slice failed`，**本机不可用**；`api_qwen_image_edit_2512`（fp8 19GB）冷启动成功并产出 9 分支。Godot 角色表当前推荐最快的 `api_image_z_image_turbo_t2i`（8 步）直接生成三视图 sheet。
 - **验证**：pytest 205/205；重启后 72 行工具清单；`validate_workflow` 通过 minimax_music_3 / wan_vace_outpainting / wan2.2_i2v；`publish_asset(target_dir=...)` 实机重发布 `hero_1001_sheet.png` 成功（8 条目 lineage manifest）。
 
+### 4.0.14 2026-08-16 音频工作流实测 + 预览工具修复 + 音视频导出
+
+1. **`api_audio_minimax_music_3` 冷启动实测成功**：产出 30.8s mp3（-17.3 dBFS，158 BPM，含 4 段 0.35~0.6s 静音间隙）；`analyze_audio` 全特征可用；波形预览修复后返回 `image/webp`。
+2. **预览工具返回类型修复**（`tools/asset.py`）：`view_image`/`view_video_preview`/`view_audio_preview` 标注 `-> dict` 但实际返回 `FastMCPImage`，触发 `outputSchema defined but no structured output returned`；统一改为 `-> Any`。
+3. **`export_to_godot`/`publish_asset(Godot 模式)` 扩展音视频后缀**：`.mp3/.wav/.ogg/.mp4/.webm/.mov` 与图片同等走 basename 白名单 + lineage manifest；BGM 已实机落盘 OneQi `Resources/Audio/BGM/bgm_heroic_cue.mp3`。
+
 ### 4.1 各视频工作流节点要点
 
 **i2v / t2v 通用骨架**（以 `api_video_minimax_h3_i2v.json` 为例）：

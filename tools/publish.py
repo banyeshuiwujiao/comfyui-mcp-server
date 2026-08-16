@@ -26,7 +26,9 @@ def _sanitize_export_filename(filename: str) -> str:
         return ""
     if name != filename or name in (".", ".."):
         return ""
-    if not name.lower().endswith((".png", ".webp", ".jpg", ".jpeg")):
+    allowed = (".png", ".webp", ".jpg", ".jpeg", ".mp3", ".wav", ".ogg",
+               ".mp4", ".webm", ".mov")
+    if not name.lower().endswith(allowed):
         return ""
     return name
 
