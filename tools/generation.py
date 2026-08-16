@@ -101,9 +101,11 @@ def register_workflow_generation_tools(
             try:
                 # GPU pressure guard: refuse admission under sustained saturation
                 if gpu_guard is not None:
+                    workflow_hint = definition.workflow_id.lower()
                     heavy = (
                         definition.output_preferences in (VIDEO_OUTPUT_KEYS, AUDIO_OUTPUT_KEYS)
-                        or "2512" in definition.workflow_id
+                        or "qwen_image_edit_2511" in workflow_hint
+                        or "2512" in workflow_hint
                     )
                     admission = gpu_guard.check_admission(heavy=heavy)
                     if not admission["allowed"]:

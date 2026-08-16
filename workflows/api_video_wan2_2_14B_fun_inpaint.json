@@ -12,7 +12,7 @@
   },
   "91": {
     "inputs": {
-      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "text": "PARAM_STR_NEGATIVE_PROMPT",
       "clip": [
         "90",
         0
@@ -61,7 +61,7 @@
   "95": {
     "inputs": {
       "add_noise": "disable",
-      "noise_seed": 0,
+      "noise_seed": "PARAM_INT_SEED",
       "steps": 4,
       "cfg": 1,
       "sampler_name": "euler",
@@ -94,7 +94,7 @@
   "96": {
     "inputs": {
       "add_noise": "enable",
-      "noise_seed": 221824495232956,
+      "noise_seed": "PARAM_INT_SEED",
       "steps": 4,
       "cfg": 1,
       "sampler_name": "euler",
@@ -142,7 +142,7 @@
   },
   "99": {
     "inputs": {
-      "text": "A dreamy scene where a little cat is sleeping. Zoom in, and the cat opens its eyes, looks up, and blinks. In Q-style, with ice crystals.",
+      "text": "PARAM_PROMPT",
       "clip": [
         "90",
         0
@@ -189,7 +189,7 @@
   },
   "110": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -230,7 +230,7 @@
   },
   "112": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE2"
     },
     "class_type": "LoadImage",
     "_meta": {

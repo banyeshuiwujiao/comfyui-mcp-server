@@ -1,7 +1,7 @@
 {
   "3": {
     "inputs": {
-      "seed": 20,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "103",
         0
@@ -37,7 +37,7 @@
   },
   "6": {
     "inputs": {
-      "text": "The man is playing the guitar. He looks down at his hands playing the guitar and sings affectionately and gently.",
+      "text": "PARAM_PROMPT",
       "clip": [
         "38",
         0
@@ -50,7 +50,7 @@
   },
   "7": {
     "inputs": {
-      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "text": "PARAM_STR_NEGATIVE_PROMPT",
       "clip": [
         "38",
         0
@@ -93,7 +93,7 @@
   },
   "52": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -349,7 +349,7 @@
   },
   "79:77": {
     "inputs": {
-      "seed": 1,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "103",
         0
@@ -438,7 +438,7 @@
   },
   "85:183": {
     "inputs": {
-      "seed": 250,
+      "seed": "PARAM_INT_SEED",
       "steps": [
         "103",
         0

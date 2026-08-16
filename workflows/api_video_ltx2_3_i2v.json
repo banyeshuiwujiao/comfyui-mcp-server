@@ -16,7 +16,7 @@
   },
   "269": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -25,7 +25,7 @@
   },
   "320:276": {
     "inputs": {
-      "noise_seed": 42
+      "noise_seed": "PARAM_INT_SEED"
     },
     "class_type": "RandomNoise",
     "_meta": {
@@ -34,7 +34,7 @@
   },
   "320:277": {
     "inputs": {
-      "noise_seed": 60540193790228
+      "noise_seed": "PARAM_INT_SEED"
     },
     "class_type": "RandomNoise",
     "_meta": {
@@ -566,7 +566,7 @@
   },
   "320:313": {
     "inputs": {
-      "text": "pc game, console game, video game, cartoon, childish, ugly",
+      "text": "PARAM_STR_NEGATIVE_PROMPT",
       "clip": [
         "320:317",
         0

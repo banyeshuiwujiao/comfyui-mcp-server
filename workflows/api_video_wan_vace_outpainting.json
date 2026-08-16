@@ -1,7 +1,7 @@
 {
   "3": {
     "inputs": {
-      "seed": 776767434080331,
+      "seed": "PARAM_INT_SEED",
       "steps": 3,
       "cfg": 1,
       "sampler_name": "uni_pc",
@@ -31,7 +31,7 @@
   },
   "6": {
     "inputs": {
-      "text": "A portrait of a woman with her eyes closed, her head surrounded by white transparent glass flowers, with only her face exposed. The camera slowly moves in, and the girl smiles. There are other transparent glass flowers in the style of Nicoletta Ceccoli around her. The detailed painting features natural light and soft lighting, creating a beautiful, surreal, and emotionally expressive movie scene.\n",
+      "text": "PARAM_PROMPT",
       "clip": [
         "165",
         1
@@ -44,7 +44,7 @@
   },
   "7": {
     "inputs": {
-      "text": "bad quality, blurry, messy, chaotic",
+      "text": "PARAM_STR_NEGATIVE_PROMPT",
       "clip": [
         "165",
         1

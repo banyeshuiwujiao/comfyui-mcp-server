@@ -10,7 +10,7 @@
   },
   "32": {
     "inputs": {
-      "image": "two_character_talking.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -283,7 +283,7 @@
   },
   "188:14": {
     "inputs": {
-      "text": "The camera zooms in. Two characters are talking.",
+      "text": "PARAM_PROMPT",
       "clip": [
         "188:16",
         0
@@ -405,7 +405,7 @@
   },
   "188:193": {
     "inputs": {
-      "noise_seed": 801592322954930
+      "noise_seed": "PARAM_INT_SEED"
     },
     "class_type": "RandomNoise",
     "_meta": {
@@ -564,7 +564,7 @@
   },
   "324:312": {
     "inputs": {
-      "text": "The camera zooms in. Two characters are talking.",
+      "text": "PARAM_PROMPT",
       "clip": [
         "324:308",
         0
@@ -686,7 +686,7 @@
   },
   "324:321": {
     "inputs": {
-      "noise_seed": 813460550844535
+      "noise_seed": "PARAM_INT_SEED"
     },
     "class_type": "RandomNoise",
     "_meta": {

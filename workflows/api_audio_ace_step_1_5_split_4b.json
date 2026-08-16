@@ -1,7 +1,7 @@
 {
   "3": {
     "inputs": {
-      "seed": 31,
+      "seed": "PARAM_INT_SEED",
       "steps": 8,
       "cfg": 1,
       "sampler_name": "euler",
@@ -72,9 +72,9 @@
   },
   "94": {
     "inputs": {
-      "tags": "Rock: A powerful, high-energy modern rock track with a raw and rebellious edge.\nDriven by distorted electric guitars, punchy live drums, and a strong bassline.\nThe song builds dynamically from tension to explosion, balancing aggression and emotion.",
-      "lyrics": "[Verse 1]\nStatic in the air, I feel it in my bones\nEvery step I take, I’m carving out my own\nNo more shadows telling me who to be\nI draw the line, now watch me break free\n\n[Pre-Chorus]\nHear the sound, it’s getting louder\nPressure turning into power\nI won’t wait, I won’t fall back\nThis is the moment, this is the attack\n\n[Chorus]\nShout it out, I’m alive tonight\nBurning bright in the dead of night\nHands up, feel the ground shake\nThis is everything I’m gonna take\n\n[Bridge]\nSilence hits before the storm\nHeart beats fast, I transform\n\n[Final Chorus]\nShout it out, I’m alive tonight\nNo more fear, no need to hide\nTurn it up, let the walls break\nThis is the fire you can’t escape",
-      "seed": 31,
+      "tags": "PARAM_STR_TAGS",
+      "lyrics": "PARAM_STR_LYRICS",
+      "seed": "PARAM_INT_SEED",
       "bpm": 190,
       "duration": 120,
       "timesignature": "4",

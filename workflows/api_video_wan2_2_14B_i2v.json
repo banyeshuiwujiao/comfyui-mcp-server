@@ -1,7 +1,7 @@
 {
   "97": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -86,7 +86,7 @@
   },
   "129:89": {
     "inputs": {
-      "text": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+      "text": "PARAM_STR_NEGATIVE_PROMPT",
       "clip": [
         "129:84",
         0
@@ -124,7 +124,7 @@
   },
   "129:93": {
     "inputs": {
-      "text": "The white dragon warrior stands still, eyes full of determination and strength. The camera slowly moves closer or circles around the warrior, highlighting the powerful presence and heroic spirit of the character.",
+      "text": "PARAM_PROMPT",
       "clip": [
         "129:84",
         0
@@ -233,7 +233,7 @@
   "129:86": {
     "inputs": {
       "add_noise": "enable",
-      "noise_seed": 586035026559269,
+      "noise_seed": "PARAM_INT_SEED",
       "steps": [
         "129:119",
         0
@@ -275,7 +275,7 @@
   "129:85": {
     "inputs": {
       "add_noise": "disable",
-      "noise_seed": 0,
+      "noise_seed": "PARAM_INT_SEED",
       "steps": [
         "129:119",
         0

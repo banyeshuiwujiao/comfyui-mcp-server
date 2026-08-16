@@ -25,7 +25,7 @@
   },
   "200": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -390,7 +390,7 @@
   },
   "129:112": {
     "inputs": {
-      "text": "blurry, out of focus, overexposed, underexposed, low contrast, washed out colors, excessive noise, grainy texture, poor lighting, flickering, motion blur, distorted proportions, unnatural skin tones, deformed facial features, asymmetrical face, missing facial features, extra limbs, disfigured hands, wrong hand count, artifacts around text, unreadable text on shirt or hat, incorrect lettering on cap (“PNTR”), incorrect t-shirt slogan (“JUST DO IT”), missing microphone, misplaced microphone, inconsistent perspective, camera shake, incorrect depth of field, background too sharp, background clutter, distracting reflections, harsh shadows, inconsistent lighting direction, color banding, cartoonish rendering, 3D CGI look, unrealistic materials, uncanny valley effect, incorrect ethnicity, wrong gender, exaggerated expressions, smiling, laughing, exaggerated sadness, wrong gaze direction, eyes looking at camera, mismatched lip sync, silent or muted audio, distorted voice, robotic voice, echo, background noise, off-sync audio, missing sniff sounds, incorrect dialogue, added dialogue, repetitive speech, jittery movement, awkward pauses, incorrect timing, unnatural transitions, inconsistent framing, tilted camera, missing door or shelves, missing shallow depth of field, flat lighting, inconsistent tone, cinematic oversaturation, stylized filters, or AI artifacts.",
+      "text": "PARAM_STR_NEGATIVE_PROMPT",
       "clip": [
         "129:103",
         0
@@ -584,7 +584,7 @@
   },
   "129:209": {
     "inputs": {
-      "prompt": "A slow forward dolly shot on a bright, sunlit day in a lush jungle ruin. A lone figure in nature-themed armor stands before a weathered stone arch overgrown with ivy. A textured marble sphere wrapped in twisting vines levitates in the arch’s center, spinning slowly. As the camera glides forward, vines sway softly, leaves flutter in the light breeze. Strong golden sunlight streams through the canopy, illuminating the mossy ruins with bright, clear light. The scene feels vibrant and peaceful, with subtle natural motion.",
+      "prompt": "PARAM_PROMPT",
       "max_length": 2048,
       "sampling_mode": "on",
       "sampling_mode.temperature": 0.7,
@@ -662,7 +662,7 @@
   },
   "129:704": {
     "inputs": {
-      "seed": 0,
+      "seed": "PARAM_INT_SEED",
       "steps": 8,
       "cfg": 1,
       "sampler_name": "euler_ancestral",

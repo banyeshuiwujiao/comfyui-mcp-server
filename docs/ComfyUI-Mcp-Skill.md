@@ -320,6 +320,13 @@ python comfy_mcp_cli.py call get_asset_lineage '{"asset_id":"<t2i_asset_id>"}'
   ```
 - **验证**：pytest 201/201；真实导出 `fx_victory.png`/`fx_defeat.png` 落盘并写入 5 条目 manifest（512×512、含完整血缘）。
 
+### 4.0.13 2026-08-16 视频/音频工作流全量参数化 + publish/export 收敛
+
+1. **24 个视频/音频工作流批量参数化**：AceStep 四套、MiniMax Music 3、LTX2 系列、WAN 2.1/2.2/VACE 系列全部补齐 `prompt`/`image`/`image2`/`seed`/`tags`/`lyrics`/`negative_prompt` 占位符；只动字符串与 seed，不参数化 steps/cfg/width/height（避免 0 值回落破坏采样）。自动注册强类型工具 **15→39**。唯一豁免：`api_video_minimax_h3_i2v` 的 prompt 含 `<Picture 1>` 首帧引用，保持不标记。
+2. **`publish_asset` 与 `export_to_godot` 收敛**：二者共享 `_publish_asset_to_godot` 单一实现。`publish_asset` 新增 `target_dir`（Godot 模式），Godot 模式不要求 web publish root 就绪、拒绝 `web_optimize`；`export_to_godot` 保留为薄壳别名。命令行两条路径行为完全一致。
+3. **Qwen 多视角实测结论（本机 16GB）**：`api_qwen_image_edit_2511` 引用 38GB bf16 模型，冷启动与 `--disable-async-offload` 均触发 comfy_aimdo `HostBuffer.read_file_slice failed`，**本机不可用**；`api_qwen_image_edit_2512`（fp8 19GB）冷启动成功并产出 9 分支。Godot 角色表当前推荐最快的 `api_image_z_image_turbo_t2i`（8 步）直接生成三视图 sheet。
+- **验证**：pytest 205/205；重启后 72 行工具清单；`validate_workflow` 通过 minimax_music_3 / wan_vace_outpainting / wan2.2_i2v；`publish_asset(target_dir=...)` 实机重发布 `hero_1001_sheet.png` 成功（8 条目 lineage manifest）。
+
 ### 4.1 各视频工作流节点要点
 
 **i2v / t2v 通用骨架**（以 `api_video_minimax_h3_i2v.json` 为例）：

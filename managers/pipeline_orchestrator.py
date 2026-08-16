@@ -429,7 +429,12 @@ class PipelineOrchestrator:
         # bypassing the per-tool wrappers, so it must check admission itself).
         if self.gpu_guard is not None:
             output_preferences = self.workflow_manager._guess_output_preferences(workflow_data)
-            heavy = output_preferences != ("images", "image", "gifs", "gif") or "2512" in wf_id
+            workflow_hint = wf_id.lower()
+            heavy = (
+                output_preferences != ("images", "image", "gifs", "gif")
+                or "qwen_image_edit_2511" in workflow_hint
+                or "2512" in workflow_hint
+            )
             admission = self.gpu_guard.check_admission(heavy=heavy)
             if not admission["allowed"]:
                 return {

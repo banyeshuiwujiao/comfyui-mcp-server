@@ -30,7 +30,7 @@
   },
   "73": {
     "inputs": {
-      "image": "ComfyUI_00029_.png"
+      "image": "PARAM_IMAGE"
     },
     "class_type": "LoadImage",
     "_meta": {
@@ -39,7 +39,7 @@
   },
   "105": {
     "inputs": {
-      "text": "An icicle dragon lunges forward, mouth wide open to exhale a stream of icy mist. Ultramarine energy flickers beneath its frost-coated scales as it twists. The camera circles slowly, capturing the swirling ice particles and the backdrop of floating glaciers and frozen nebulae under a cyan-blue filter.",
+      "text": "PARAM_PROMPT",
       "clip": [
         "115",
         1
@@ -52,7 +52,7 @@
   },
   "107": {
     "inputs": {
-      "text": "过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走,",
+      "text": "PARAM_STR_NEGATIVE_PROMPT",
       "clip": [
         "115",
         1
@@ -65,7 +65,7 @@
   },
   "108": {
     "inputs": {
-      "seed": 552837504311715,
+      "seed": "PARAM_INT_SEED",
       "steps": 4,
       "cfg": 1,
       "sampler_name": "uni_pc",

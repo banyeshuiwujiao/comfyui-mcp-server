@@ -144,3 +144,39 @@ def test_sanitize_export_filename_accepts_plain_png():
     assert _sanitize_export_filename("fx_victory.png") == "fx_victory.png"
     assert _sanitize_export_filename("a/b.png") == ""
     assert _sanitize_export_filename("noext") == ""
+
+
+def test_publish_asset_godot_mode_is_same_implementation(tmp_path):
+    """publish_asset(target_dir=...) must converge with export_to_godot."""
+    registry = AssetRegistry(ttl_hours=24, db_path=":memory:")
+    png = _synthetic_png()
+    rec = registry.register_asset(
+        filename="z-image-turbo_00003_.png",
+        subfolder="",
+        folder_type="output",
+        workflow_id="api_image_z_image_turbo_t2i",
+        prompt_id="p3",
+        mime_type="image/png",
+        bytes_size=len(png),
+        prompt="hero sheet",
+        metadata={"workflow_hash": "sheet-hash"},
+    )
+    publish_manager = MagicMock()
+    publish_manager.config.comfyui_url = "http://localhost:8188"
+    tools = _capture_tools(registry, publish_manager)
+    target_dir = tmp_path / "CharacterSheets"
+    target_dir.mkdir()
+
+    with patch("tools.publish.fetch_asset_bytes", return_value=png):
+        result = tools["publish_asset"](
+            asset_id=rec.asset_id,
+            target_dir=str(target_dir),
+            target_filename="hero_1001_sheet.png",
+            manifest_key="CharacterSheets",
+        )
+
+    assert result["status"] == "success"
+    assert (target_dir / "hero_1001_sheet.png").read_bytes() == png
+    manifest = json.loads((target_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["assets"][0]["file"] == "hero_1001_sheet.png"
+    assert manifest["assets"][0]["workflow_hash"] == "sheet-hash"
