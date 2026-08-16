@@ -6,17 +6,17 @@ handshake and can call ANY tool with arbitrary JSON arguments, so shell
 scripts and AI agents can drive the server without an MCP SDK.
 
 Usage:
-  python comfy_mcp_cli.py tools                       # list all tools
+  python comfy_mcp_cli.py tools [--out tools.json]    # list all tools
   python comfy_mcp_cli.py call TOOL '{"prompt":"..."}' [--timeout 900] [--out result.json]
-  python comfy_mcp_cli.py read comfyui://system/gpu-health
-  python comfy_mcp_cli.py prompts                     # list prompts
+  python comfy_mcp_cli.py read comfyui://system/gpu-health [--out health.json]
+  python comfy_mcp_cli.py prompts [--out prompts.json]  # list prompts
 
 Exit code is 0 on success, 1 on any JSON-RPC/tool error.
 """
 import argparse
 import json
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -148,19 +148,28 @@ def result_is_failure(result: dict, payload: dict, allow_error: bool) -> bool:
     return False
 
 
-def main() -> int:
+def write_out(path: Optional[str], text: str) -> None:
+    """Write captured JSON to ``path`` when requested (agents avoid shell redirection)."""
+    if not path:
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text if text.endswith("\n") else text + "\n")
+
+
+def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--endpoint", default=DEFAULT_ENDPOINT)
     common.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
+    out_common = argparse.ArgumentParser(add_help=False)
+    out_common.add_argument("--out", help="Optional path to write the raw JSON result")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("tools", help="List all MCP tools", parents=[common])
+    sub.add_parser("tools", help="List all MCP tools", parents=[common, out_common])
 
-    p_call = sub.add_parser("call", help="Call a tool with JSON arguments", parents=[common])
+    p_call = sub.add_parser("call", help="Call a tool with JSON arguments", parents=[common, out_common])
     p_call.add_argument("tool")
     p_call.add_argument("arguments", help="JSON object or path to a JSON file (@file)")
-    p_call.add_argument("--out", help="Optional path to write the raw JSON result")
     p_call.add_argument(
         "--allow-error",
         action="store_true",
@@ -168,12 +177,12 @@ def main() -> int:
              "By default any failure makes the CLI exit 1 so shell pipelines fail fast.",
     )
 
-    p_read = sub.add_parser("read", help="Read an MCP resource URI", parents=[common])
+    p_read = sub.add_parser("read", help="Read an MCP resource URI", parents=[common, out_common])
     p_read.add_argument("uri")
 
-    sub.add_parser("prompts", help="List MCP prompts", parents=[common])
+    sub.add_parser("prompts", help="List MCP prompts", parents=[common, out_common])
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not hasattr(args, "endpoint"):
         args.endpoint = DEFAULT_ENDPOINT
     if not hasattr(args, "timeout"):
@@ -187,6 +196,7 @@ def main() -> int:
             for tool in tools:
                 params = list((tool.get("inputSchema") or {}).get("properties", {}).keys())
                 print(f"{tool['name']:<48} [{', '.join(params)}]")
+            write_out(args.out, json.dumps(tools, ensure_ascii=False, indent=2))
             return 0
 
         if args.command == "call":
@@ -205,9 +215,7 @@ def main() -> int:
             payload = parsed if isinstance(parsed, dict) else result
             output = json.dumps(payload, ensure_ascii=False, indent=2)
             print(output)
-            if args.out:
-                with open(args.out, "w", encoding="utf-8") as f:
-                    f.write(output + "\n")
+            write_out(args.out, output)
 
             # MCP-level failure: result.isError=true (HTTP 200, JSON-RPC success).
             if result_is_failure(result, payload, args.allow_error):
@@ -221,12 +229,16 @@ def main() -> int:
             return 0
 
         if args.command == "read":
-            print(json.dumps(client.read_resource(args.uri), ensure_ascii=False, indent=2))
+            output = json.dumps(client.read_resource(args.uri), ensure_ascii=False, indent=2)
+            print(output)
+            write_out(args.out, output)
             return 0
 
         if args.command == "prompts":
-            for prompt in client.list_prompts():
+            prompts = client.list_prompts()
+            for prompt in prompts:
                 print(f"{prompt.get('name')}: {prompt.get('description', '')}")
+            write_out(args.out, json.dumps(prompts, ensure_ascii=False, indent=2))
             return 0
     except (requests.RequestException, RuntimeError, ValueError) as e:
         print(f"[X] {e}", file=sys.stderr)
