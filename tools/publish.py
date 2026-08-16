@@ -413,6 +413,11 @@ def register_publish_tools(
         size = [image_meta.get("width"), image_meta.get("height")]
 
         is_matting = getattr(asset_record, "generation_type", None) == "matting"
+        workflow_hash = (asset_record.metadata or {}).get("workflow_hash")
+        if not workflow_hash and is_matting and asset_record.parent_asset_id:
+            parent_record = asset_registry.get_asset(asset_record.parent_asset_id)
+            workflow_hash = (parent_record.metadata or {}).get("workflow_hash") if parent_record else None
+
         entry = {
             "file": filename,
             "comfy_file": asset_record.filename,
@@ -422,7 +427,7 @@ def register_publish_tools(
             "workflow_id": asset_record.workflow_id,
             "size": size,
             "prompt": getattr(asset_record, "prompt", None),
-            "workflow_hash": (asset_record.metadata or {}).get("workflow_hash"),
+            "workflow_hash": workflow_hash,
             "exported_at": datetime.now(timezone.utc).isoformat(),
         }
         category = category or target_path.name

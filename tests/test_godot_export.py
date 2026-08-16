@@ -87,6 +87,7 @@ def test_export_to_godot_marks_matting_lineage(tmp_path):
         workflow_id="api_image_z_image_turbo_t2i",
         prompt_id="p2",
         mime_type="image/png",
+        metadata={"workflow_hash": "t2i-template-hash"},
     )
     matting = registry.register_asset(
         filename="transparent_z-image-turbo_00002_.png",
@@ -117,6 +118,7 @@ def test_export_to_godot_marks_matting_lineage(tmp_path):
     entry = result["manifest_entry"]
     assert entry["source_asset_id"] == parent.asset_id
     assert entry["matting_asset_id"] == matting.asset_id
+    assert entry["workflow_hash"] == "t2i-template-hash"
 
 
 def test_export_to_godot_rejects_path_traversal(tmp_path):
