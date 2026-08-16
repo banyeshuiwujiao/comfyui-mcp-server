@@ -1,7 +1,7 @@
 {
   "1": {
     "inputs": {
-      "model": "PARAM_MODEL"
+      "model": "PARAM_MODEL:unsloth/Meta-Llama-3.1-8B-Instruct-bnb-4bit"
     },
     "class_type": "Joy_caption_two_load",
     "_meta": {
@@ -12,9 +12,9 @@
     "inputs": {
       "joy_two_pipeline": ["1", 0],
       "image": ["190", 0],
-      "caption_type": "PARAM_CAPTION_TYPE",
-      "caption_length": "PARAM_CAPTION_LENGTH",
-      "caption_language": "PARAM_LANGUAGE",
+      "caption_type": "PARAM_CAPTION_TYPE:Descriptive",
+      "caption_length": "PARAM_CAPTION_LENGTH:long",
+      "caption_language": "PARAM_LANGUAGE:English",
       "low_vram": true
     },
     "class_type": "Joy_caption_two",

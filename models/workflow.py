@@ -13,6 +13,7 @@ class WorkflowParameter:
     description: str
     bindings: list[Tuple[str, str]] = field(default_factory=list)
     required: bool = True
+    default: Any = None
 
 
 @dataclass

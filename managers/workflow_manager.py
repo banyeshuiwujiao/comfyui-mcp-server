@@ -31,6 +31,11 @@ PLACEHOLDER_DESCRIPTIONS = {
     "image": "Input image filename already present in ComfyUI's input directory.",
     "input_dir": "Directory containing images to batch-process: absolute path, or relative to the ComfyUI process working directory (NOT relative to ComfyUI/input).",
     "output_format": "Batch output format: 'txt', 'json' or 'both'. JSON writes captions_summary.json into the input directory.",
+    "caption_type": "JoyCaption caption style, e.g. 'Descriptive', 'Training Prompt', 'Booru tag list' or 'Art Critic'.",
+    "caption_length": "JoyCaption caption length: 'any', an adjective ('short'/'long') or a word-count number like '80'.",
+    "language": "Caption output language, e.g. 'English' or '中文' (Chinese templates come from joy_config CAPTION_TYPE_MAP_ZH).",
+    "top_p": "JoyCaption nucleus sampling top-p (0.0-1.0). Default 0.9.",
+    "temperature": "JoyCaption sampling temperature (0.0-1.0). Default 0.6.",
     "steps": "Number of sampling steps. Higher = better quality but slower. Default: 20.",
     "cfg": "Classifier-free guidance scale. Higher = more adherence to prompt. Default: 8.0.",
     "sampler_name": "Sampling method (e.g., 'euler', 'dpmpp_2m', 'ddim'). Default: 'euler'.",
@@ -299,12 +304,13 @@ class WorkflowManager:
         # Apply defaults for parameters not in overrides
         for param_name, param in parameters.items():
             if param_name not in overrides and not param.required:
-                if defaults_manager:
+                default_value = param.default
+                if default_value is None and defaults_manager:
                     default_value = defaults_manager.get_default(namespace, param.name, None)
-                    if default_value is not None:
-                        for node_id, input_name in param.bindings:
-                            if node_id in workflow and "inputs" in workflow[node_id]:
-                                workflow[node_id]["inputs"][input_name] = default_value
+                if default_value is not None:
+                    for node_id, input_name in param.bindings:
+                        if node_id in workflow and "inputs" in workflow[node_id]:
+                            workflow[node_id]["inputs"][input_name] = default_value
 
         # Final safety pass: any input still holding a raw PARAM_ placeholder
         # string must be filled, otherwise ComfyUI would reject the prompt.
@@ -327,7 +333,8 @@ class WorkflowManager:
         After overrides/defaults are applied, a placeholder may remain when an
         optional parameter was neither overridden nor given a default. We must
         not submit a literal "PARAM_INT_SEED" to ComfyUI. The `seed` parameter
-        is randomized; everything else falls back to a zero/empty value and is
+        is randomized; parameters carrying a ``:default`` suffix use that
+        default; everything else falls back to a zero/empty value and is
         recorded in `overrides_dropped` so the caller can surface it.
         """
         report = workflow.get("__override_report__")
@@ -340,10 +347,13 @@ class WorkflowManager:
             for input_name, value in inputs.items():
                 if not isinstance(value, str) or not value.startswith(PLACEHOLDER_PREFIX):
                     continue
-                param_name, annotation, _ = self._parse_placeholder(value) or (None, None, None)
-                if param_name is None:
-                    # Unrecognized placeholder form: clear it to empty to avoid submit errors.
-                    inputs[input_name] = "" if annotation is str else 0
+                parsed = self._parse_placeholder(value)
+                if parsed is None:
+                    inputs[input_name] = ""
+                    continue
+                param_name, annotation, _, default_value = parsed
+                if default_value is not None:
+                    inputs[input_name] = default_value
                     continue
                 if param_name == "seed" and annotation is int:
                     inputs[input_name] = random.randint(0, 2**32 - 1)
@@ -454,6 +464,10 @@ class WorkflowManager:
                     # Special handling for seed - generate random
                     raw_value = random.randint(0, 2**32 - 1)
                     logger.debug(f"Generated random seed: {raw_value}")
+                elif param.default is not None:
+                    # Workflow-embedded `PARAM_X:default` (per-template default)
+                    raw_value = param.default
+                    logger.debug(f"Using workflow default for {param.name}: {raw_value}")
                 elif defaults_manager:
                     # Use defaults manager to get value with proper precedence
                     raw_value = defaults_manager.get_default(namespace, param.name, None)
@@ -503,10 +517,13 @@ class WorkflowManager:
                 parsed = self._parse_placeholder(value)
                 if not parsed:
                     continue
-                param_name, annotation, placeholder_value = parsed
-                description = PLACEHOLDER_DESCRIPTIONS.get(
-                    param_name, f"Value for '{param_name}'."
-                )
+                param_name, annotation, placeholder_value, default_value = parsed
+                if param_name.startswith("extra_"):
+                    description = "JoyCaption extra caption option (boolean; true appends the option to the prompt)."
+                else:
+                    description = PLACEHOLDER_DESCRIPTIONS.get(
+                        param_name, f"Value for '{param_name}'."
+                    )
                 parameter = parameters.get(param_name)
                 if not parameter:
                     # Make seed and other optional parameters non-required
@@ -517,24 +534,40 @@ class WorkflowManager:
                         "seed", "width", "height", "model", "steps", "cfg",
                         "sampler_name", "scheduler", "denoise", "negative_prompt",
                         "seconds", "lyrics_strength",  # Audio-specific optional params
-                        "duration", "fps"  # Video-specific optional params
+                        "duration", "fps",  # Video-specific optional params
+                        "caption_type", "caption_length", "language",  # JoyCaption choices
+                        "top_p", "temperature", "output_format",  # JoyCaption sampling/batch
                     }
-                    is_required = param_name not in optional_params
+                    is_required = (
+                        param_name not in optional_params
+                        and not param_name.startswith("extra_")
+                    )
                     parameter = WorkflowParameter(
                         name=param_name,
                         placeholder=placeholder_value,
                         annotation=annotation,
                         description=description,
                         required=is_required,
+                        default=default_value,
                     )
                     parameters[param_name] = parameter
                 parameter.bindings.append((node_id, input_name))
         return parameters
 
     def _parse_placeholder(self, value):
+        """Parse ``PARAM_[TYPE_]NAME[:default]``.
+
+        Returns ``(param_name, annotation, placeholder_value, default_value)``.
+        ``default_value`` is None when no ``:default`` suffix is present and is
+        coerced to the placeholder annotation (bool/int/float/str) otherwise.
+        Example: ``PARAM_BOOL_EXTRA_LIGHTING:true`` -> default True.
+        """
         if not isinstance(value, str) or not value.startswith(PLACEHOLDER_PREFIX):
             return None
         token = value[len(PLACEHOLDER_PREFIX) :]
+        default_raw = None
+        if ":" in token:
+            token, default_raw = token.split(":", 1)
         annotation = str
         if "_" in token:
             type_candidate, remainder = token.split("_", 1)
@@ -543,7 +576,10 @@ class WorkflowManager:
                 annotation = type_hint
                 token = remainder
         param_name = self._normalize_name(token)
-        return param_name, annotation, value
+        default_value = None
+        if default_raw is not None:
+            default_value = self._coerce_value(default_raw, annotation)
+        return param_name, annotation, value, default_value
 
     def _normalize_name(self, raw: str):
         cleaned = [
